@@ -492,6 +492,8 @@ class DynamicCategoryTaskGenerator(BaseTaskGenerator):
         self.runtime: Dict[str, dict] = {}
         self.item_runtime: Dict[str, dict] = {}
         self.instances = self._build_instances()
+        self._prepare_instance_runtime_fields()
+        self._timeframe_group_members = self._build_timeframe_group_members()
         self._timeframe_allocation_cache: Dict[tuple, Tuple[int, int]] = {}
 
     def _next_task_id(self, category_key: str, department_id: str = "") -> str:
@@ -922,6 +924,73 @@ class DynamicCategoryTaskGenerator(BaseTaskGenerator):
 
         return instances
 
+    def _prepare_instance_runtime_fields(self) -> None:
+        """Cache config-derived values used repeatedly during generation."""
+        for instance in self.instances:
+            cfg = instance.get("cfg", {}) or {}
+            weekly_hours = _normalise_staff_weekly_hours(
+                cfg.get("staff_working_hours", {})
+            )
+            weekly_key = tuple(
+                (
+                    day_key,
+                    bool(weekly_hours[day_key].get("enabled", False)),
+                    _clean_text(weekly_hours[day_key].get("start_time", "")),
+                    _clean_text(weekly_hours[day_key].get("end_time", "")),
+                )
+                for day_key in DAY_KEYS
+            )
+            generation_mode = (
+                _clean_text(cfg.get("generation_mode", "scheduled")) or "scheduled"
+            )
+            payload_name = _clean_text(cfg.get("payload", ""))
+            active_days = tuple(
+                _clean_text(x).lower()[:3]
+                for x in (cfg.get("days_active", []) or [])
+                if _clean_text(x)
+            )
+
+            instance["_timeframe_group_key"] = (
+                _clean_text(instance.get("category_key", "")).lower(),
+                _clean_text(cfg.get("staff_resource_name", "")).lower(),
+                _normalise_staff_shift_pattern(
+                    cfg.get("staff_shift_pattern", "none")
+                ),
+                bool(
+                    _as_bool(cfg.get("staff_use_custom_working_hours", False), False)
+                ),
+                weekly_key,
+                _clean_text(cfg.get("timeframe_start", "")),
+                _clean_text(cfg.get("timeframe_end", "")),
+            )
+            instance["_generation_mode"] = generation_mode
+            instance["_requires_staff"] = _as_bool(
+                cfg.get("requires_staff", False), False
+            )
+            instance["_payload_name"] = payload_name
+            instance["_enabled"] = _as_bool(cfg.get("enabled", False), False)
+            instance["_active_days"] = active_days
+            instance["_run_every_fortnight"] = _as_bool(
+                cfg.get("run_every_fortnight", False), False
+            )
+            instance["_timeframe_task_count"] = (
+                self._calculate_timeframe_instance_task_count(instance, payload_name)
+            )
+
+    def _build_timeframe_group_members(self) -> Dict[tuple, List[dict]]:
+        groups: Dict[tuple, List[dict]] = {}
+        for instance in self.instances:
+            if instance.get("_generation_mode") not in TIMEFRAME_MODES:
+                continue
+            if not bool(instance.get("_requires_staff", False)):
+                continue
+            group_key = self._timeframe_group_key(instance)
+            groups.setdefault(group_key, []).append(instance)
+
+        for members in groups.values():
+            members.sort(key=lambda item: str(item.get("key", "")))
+        return groups
+
     def _valid_locations_and_payload(
         self, pickup: str, dropoff: str, payload: str
     ) -> bool:
@@ -932,6 +1001,9 @@ class DynamicCategoryTaskGenerator(BaseTaskGenerator):
         )
 
     def _timeframe_group_key(self, instance: dict) -> tuple:
+        cached = instance.get("_timeframe_group_key")
+        if cached is not None:
+            return cached
         cfg = instance.get("cfg", {}) or {}
         weekly_hours = _normalise_staff_weekly_hours(
             cfg.get("staff_working_hours", {})
@@ -955,7 +1027,9 @@ class DynamicCategoryTaskGenerator(BaseTaskGenerator):
             _clean_text(cfg.get("timeframe_end", "")),
         )
 
-    def _timeframe_instance_task_count(self, instance: dict) -> int:
+    def _calculate_timeframe_instance_task_count(
+        self, instance: dict, payload_name: Optional[str] = None
+    ) -> int:
         cfg = instance.get("cfg", {}) or {}
         multiple = max(
             1,
@@ -964,7 +1038,8 @@ class DynamicCategoryTaskGenerator(BaseTaskGenerator):
                 1,
             ),
         )
-        payload_name = _clean_text(cfg.get("payload", ""))
+        if payload_name is None:
+            payload_name = _clean_text(cfg.get("payload", ""))
         return sum(
             1
             for index in range(multiple)
@@ -972,18 +1047,32 @@ class DynamicCategoryTaskGenerator(BaseTaskGenerator):
             if self._valid_locations_and_payload(pickup, dropoff, payload_name)
         )
 
+    def _timeframe_instance_task_count(self, instance: dict) -> int:
+        cached = instance.get("_timeframe_task_count")
+        if cached is not None:
+            return int(cached)
+        return self._calculate_timeframe_instance_task_count(instance)
+
     def _instance_has_active_day(self, instance: dict, base_day: datetime) -> bool:
         cfg = instance.get("cfg", {}) or {}
-        if not _as_bool(cfg.get("enabled", False), False):
+        if not bool(instance.get("_enabled", _as_bool(cfg.get("enabled", False), False))):
             return False
-        active_days = cfg.get("days_active", []) or []
+        active_days = instance.get("_active_days")
+        if active_days is None:
+            active_days = tuple(
+                _clean_text(x).lower()[:3]
+                for x in (cfg.get("days_active", []) or [])
+                if _clean_text(x)
+            )
         if active_days:
-            allowed = {
-                _clean_text(x).lower()[:3] for x in active_days if _clean_text(x)
-            }
-            if _day_key_for_datetime(base_day) not in allowed:
+            if _day_key_for_datetime(base_day) not in active_days:
                 return False
-        if _as_bool(cfg.get("run_every_fortnight", False), False):
+        if bool(
+            instance.get(
+                "_run_every_fortnight",
+                _as_bool(cfg.get("run_every_fortnight", False), False),
+            )
+        ):
             week_index = max(
                 0, (base_day.date() - self.clock.start_datetime.date()).days // 7
             )
@@ -1008,18 +1097,9 @@ class DynamicCategoryTaskGenerator(BaseTaskGenerator):
 
         members = [
             item
-            for item in self.instances
-            if self._timeframe_group_key(item) == group_key
-            and _clean_text(
-                (item.get("cfg", {}) or {}).get("generation_mode", "scheduled")
-            )
-            in TIMEFRAME_MODES
-            and _as_bool(
-                (item.get("cfg", {}) or {}).get("requires_staff", False), False
-            )
-            and self._instance_has_active_day(item, base_day)
+            for item in self._timeframe_group_members.get(group_key, [])
+            if self._instance_has_active_day(item, base_day)
         ]
-        members.sort(key=lambda item: _clean_text(item.get("key", "")))
 
         offset = 0
         total = sum(self._timeframe_instance_task_count(item) for item in members)
