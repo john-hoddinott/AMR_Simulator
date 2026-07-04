@@ -3029,7 +3029,7 @@ class Simulation:
         if len(self.local_manoeuvre_waypoint_cache) >= max_entries:
             self.local_manoeuvre_waypoint_cache.clear()
         self.local_manoeuvre_waypoint_cache[cache_key] = tuple(
-            (round(float(x), 4), round(float(y), 4)) for x, y in waypoints
+            (float(x), float(y)) for x, y in waypoints
         )
 
     def _clear_local_segment(
@@ -3319,15 +3319,19 @@ class Simulation:
         target_heading_deg = self._inventory_space_rotation_deg(target_space)
         radius = self._amr_vehicle_turning_radius_m(amr)
         space_name = str(target_space.get("name", "") or "")
+        initial_heading_deg = float(
+            getattr(amr, "rotation_deg", target_heading_deg) or target_heading_deg
+        )
         cache_key = (
             str(location_name or "").strip(),
             space_name.strip(),
-            round(start[0], 4),
-            round(start[1], 4),
-            round(end[0], 4),
-            round(end[1], 4),
-            round(float(target_heading_deg), 3),
-            round(float(radius), 3),
+            start[0],
+            start[1],
+            end[0],
+            end[1],
+            float(initial_heading_deg),
+            float(target_heading_deg),
+            float(radius),
         )
         waypoints = self._local_manoeuvre_waypoint_cache_get(cache_key)
         if waypoints is None:
@@ -3337,13 +3341,9 @@ class Simulation:
                 waypoints, target_heading_deg, radius, obstacles
             )
             waypoints = self._smooth_vehicle_waypoints(
-                waypoints, target_heading_deg, target_heading_deg, radius
+                waypoints, initial_heading_deg, target_heading_deg, radius
             )
             self._local_manoeuvre_waypoint_cache_set(cache_key, waypoints)
-
-        initial_heading_deg = float(
-            getattr(amr, "rotation_deg", target_heading_deg) or target_heading_deg
-        )
 
         segments: List[dict] = []
         total_duration = 0.0
