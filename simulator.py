@@ -251,6 +251,11 @@ class Simulation:
                 or 0
             ),
         )
+        self.route_feasibility_cache: Dict[Tuple, bool] = {}
+        self.route_feasibility_cache_max_entries = max(
+            0,
+            int(sim_cfg.get("route_feasibility_cache_max_entries", 50000) or 0),
+        )
         self.generated_release_stagger_sec = max(
             0.0,
             float(
@@ -8918,9 +8923,17 @@ class Simulation:
         anything, so it is safe to use when deciding whether a pending task is
         impossible and should be failed.
         """
+        cache_key = self._route_feasibility_cache_key(
+            amr, from_loc, to_loc, payload, rules
+        )
+        if cache_key is not None:
+            cached = self.route_feasibility_cache.get(cache_key)
+            if cached is not None:
+                return cached
+
         try:
             if from_loc.floor == to_loc.floor:
-                return (
+                result = (
                     self._shortest_path_same_floor(
                         from_loc.floor,
                         from_loc.name,
@@ -8929,8 +8942,10 @@ class Simulation:
                     )
                     is not None
                 )
+                self._route_feasibility_cache_set(cache_key, result)
+                return result
 
-            return (
+            result = (
                 self._nearest_compatible_lift_plan(
                     self.current_time,
                     amr,
@@ -8941,8 +8956,79 @@ class Simulation:
                 )
                 is not None
             )
+            self._route_feasibility_cache_set(cache_key, result)
+            return result
         except Exception:
+            self._route_feasibility_cache_set(cache_key, False)
             return False
+
+    def _route_feasibility_cache_key(
+        self,
+        amr: AMR,
+        from_loc: Location,
+        to_loc: Location,
+        payload: PayloadType,
+        rules: Optional[dict] = None,
+    ) -> Optional[Tuple]:
+        max_entries = int(
+            getattr(self, "route_feasibility_cache_max_entries", 0) or 0
+        )
+        if max_entries <= 0:
+            return None
+        rules = rules or self._empty_route_rules()
+        lift_state = ()
+        if from_loc.floor != to_loc.floor:
+            lift_state = tuple(
+                (
+                    lift.id,
+                    float(getattr(lift, "health_percent", 100.0) or 0.0),
+                    float(getattr(lift, "failed_until", 0.0) or 0.0),
+                    self._lift_health_speed_factor(lift) > 0.0,
+                    (
+                        float(
+                            self._scenario_event_state(
+                                "lift", lift.id, self.current_time
+                            ).get("availability_percent", 100.0)
+                        )
+                        if self.scenario_mode
+                        else 100.0
+                    ),
+                )
+                for lift in self.lifts
+                if lift.can_serve(from_loc.floor, to_loc.floor)
+                and self._lift_allowed(lift, rules)
+            )
+        return (
+            from_loc.name,
+            to_loc.name,
+            int(from_loc.floor),
+            int(to_loc.floor),
+            str(getattr(amr, "id", "") or ""),
+            float(getattr(amr, "length_m", 0.0) or 0.0),
+            float(getattr(amr, "width_m", 0.0) or 0.0),
+            float(getattr(amr, "height_m", 0.0) or 0.0),
+            str(getattr(payload, "name", "") or ""),
+            float(getattr(payload, "weight_kg", 0.0) or 0.0),
+            float(getattr(payload, "length_m", 0.0) or 0.0),
+            float(getattr(payload, "width_m", 0.0) or 0.0),
+            float(getattr(payload, "height_m", 0.0) or 0.0),
+            self._rules_cache_key(rules),
+            lift_state,
+        )
+
+    def _route_feasibility_cache_set(
+        self, cache_key: Optional[Tuple], result: bool
+    ) -> None:
+        if cache_key is None:
+            return
+        max_entries = int(
+            getattr(self, "route_feasibility_cache_max_entries", 0) or 0
+        )
+        if max_entries <= 0:
+            return
+        if len(self.route_feasibility_cache) >= max_entries:
+            self.route_feasibility_cache.clear()
+        self.route_feasibility_cache[cache_key] = bool(result)
 
     def _released_task_terminal_failure_reason(self, task: Task) -> str:
         """Return a failure reason only for tasks that cannot ever run.
