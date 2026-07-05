@@ -256,6 +256,8 @@ class Simulation:
             0,
             int(sim_cfg.get("route_feasibility_cache_max_entries", 50000) or 0),
         )
+        self.amr_inventory_space_acceptance_cache: Dict[Tuple, bool] = {}
+        self.corridor_lane_capacity_cache: Dict[Tuple, Tuple[int, float, float]] = {}
         self.generated_release_stagger_sec = max(
             0.0,
             float(
@@ -3472,8 +3474,18 @@ class Simulation:
         """
         if not isinstance(space, dict):
             return False
+        cache_key = (id(space), id(amr))
+        cached = self.amr_inventory_space_acceptance_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        def cache_and_return(value: bool) -> bool:
+            self.amr_inventory_space_acceptance_cache[cache_key] = bool(value)
+            return bool(value)
 
         amr_type_values = []
+        amr_id = str(getattr(amr, "id", "") or "").strip()
+        base_id = amr_id.rsplit("-", 1)[0]
         parent_marks_amr = (
             bool(space.get("stores_amr", False))
             or str(space.get("space_type", "") or "").strip().lower() == "amr"
@@ -3494,17 +3506,15 @@ class Simulation:
                     amr_type_values.append(slot_amr_type)
 
         if not (parent_marks_amr or slot_marks_amr):
-            return False
+            return cache_and_return(False)
 
-        base_id = str(getattr(amr, "id", "") or "").rsplit("-", 1)[0]
-        amr_id = str(getattr(amr, "id", "") or "").strip()
         clean_amr_types = {x for x in amr_type_values if x}
         if (
             clean_amr_types
             and base_id not in clean_amr_types
             and amr_id not in clean_amr_types
         ):
-            return False
+            return cache_and_return(False)
 
         length_m = float(space.get("length_m", 0.0) or 0.0)
         width_m = float(space.get("width_m", 0.0) or 0.0)
@@ -3519,7 +3529,9 @@ class Simulation:
 
         fits_normal = _fits(amr_length, length_m) and _fits(amr_width, width_m)
         fits_rotated = _fits(amr_length, width_m) and _fits(amr_width, length_m)
-        return (fits_normal or fits_rotated) and _fits(amr_height, height_m)
+        return cache_and_return(
+            (fits_normal or fits_rotated) and _fits(amr_height, height_m)
+        )
 
     def _location_has_any_amr_inventory_spaces(self, location_name: str) -> bool:
         """Return True if the location contains any AMR bay, regardless of type."""
@@ -5783,6 +5795,8 @@ class Simulation:
         return at_zero + (1.0 - at_zero) * (health / 100.0)
 
     def _resource_speed_factor(self, resource_type: str, resource_id: str, sim_time_sec: float) -> Tuple[float, float, str]:
+        if not self.scenario_mode:
+            return 1.0, float(sim_time_sec), ""
         state = self._scenario_event_state(resource_type, resource_id, sim_time_sec)
         availability_factor = max(0.0, min(1.0, float(state["availability_percent"]) / 100.0))
         speed_factor = min(float(state["speed_factor"]), availability_factor if availability_factor > 0 else 0.0)
@@ -6116,9 +6130,19 @@ class Simulation:
         return count, factor, ",".join(sorted(x for x in groups if x))
 
     def _corridor_lane_capacity(self, edge: dict, amr: AMR, payload: Optional[PayloadType], orientation: str = "lengthways") -> Tuple[int, float, float]:
+        payload_key = None
+        if payload is not None:
+            payload_key = (id(payload), str(orientation or "lengthways").strip().lower())
+        cache_key = (id(edge), id(amr), payload_key)
+        cached = self.corridor_lane_capacity_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         width = max(0.1, float(edge.get("width_m", self.default_corridor_width_m) or self.default_corridor_width_m))
         if not bool(edge.get("bidirectional", True)):
-            return 1, width, width
+            result = (1, width, width)
+            self.corridor_lane_capacity_cache[cache_key] = result
+            return result
         lane_width = width / 2.0
         payload_length = 0.0
         payload_cross_width = 0.0
@@ -6127,8 +6151,12 @@ class Simulation:
         carrying_length = max(float(getattr(amr, "length_m", 0.0) or 0.0), payload_length)
         carrying_width = max(float(getattr(amr, "width_m", 0.0) or 0.0), payload_cross_width)
         if carrying_length > lane_width + 1e-9 or carrying_width > lane_width + 1e-9:
-            return 1, lane_width, carrying_length
-        return 2, lane_width, carrying_length
+            result = (1, lane_width, carrying_length)
+            self.corridor_lane_capacity_cache[cache_key] = result
+            return result
+        result = (2, lane_width, carrying_length)
+        self.corridor_lane_capacity_cache[cache_key] = result
+        return result
 
     def _static_route_endpoint_names_by_floor(self) -> Dict[int, List[str]]:
         """Return route endpoint nodes worth pre-caching.
