@@ -182,11 +182,14 @@ class LauncherWindow(QMainWindow):
 
         self.config_list = QListWidget()
         self.config_list.currentItemChanged.connect(self._on_config_selected)
+        self.config_list.itemClicked.connect(lambda _item: self.show_selected_config_detail())
         self.tabs.addTab(self._config_tab(), "Configs")
 
         self.run_list = QListWidget()
         self.run_list.currentItemChanged.connect(self._on_run_selected)
+        self.run_list.itemClicked.connect(lambda _item: self.show_selected_run_detail())
         self.tabs.addTab(self._runs_tab(), "Runs")
+        self.tabs.currentChanged.connect(self._on_tab_changed)
 
         self.detail_label = QLabel("Select a config or run.")
         self.detail_label.setWordWrap(True)
@@ -285,6 +288,7 @@ class LauncherWindow(QMainWindow):
         selected_run = self.selected_run_dir()
         self.refresh_configs(selected_config)
         self.refresh_runs(selected_run)
+        self.refresh_active_detail()
 
     def refresh_configs(self, selected: Optional[Path] = None) -> None:
         self.config_paths = discover_configs()
@@ -299,10 +303,11 @@ class LauncherWindow(QMainWindow):
         if self.config_list.count() and self.config_list.currentRow() < 0:
             self.config_list.setCurrentRow(0)
         elif not self.config_list.count():
-            self.detail_label.setText(
-                "No launcher-managed configs found. Import a JSON config or create "
-                "a copy in the launcher config folder to get started."
-            )
+            if self.tabs.currentIndex() == 0:
+                self.detail_label.setText(
+                    "No launcher-managed configs found. Import a JSON config or create "
+                    "a copy in the launcher config folder to get started."
+                )
 
     def refresh_runs(self, selected: Optional[Path] = None) -> None:
         self.run_paths = discover_runs()
@@ -332,14 +337,29 @@ class LauncherWindow(QMainWindow):
         return Path(item.data(Qt.UserRole))
 
     def _on_config_selected(self) -> None:
+        if self.tabs.currentIndex() != 0:
+            return
+        self.show_selected_config_detail()
+
+    def show_selected_config_detail(self) -> None:
         path = self.selected_config_path()
         if not path:
+            self.detail_label.setText(
+                "No launcher-managed configs found. Import a JSON config or create "
+                "a copy in the launcher config folder to get started."
+            )
             return
         self.detail_label.setText(f"Config: {path}")
 
     def _on_run_selected(self) -> None:
+        if self.tabs.currentIndex() != 1:
+            return
+        self.show_selected_run_detail()
+
+    def show_selected_run_detail(self) -> None:
         run_dir = self.selected_run_dir()
         if not run_dir:
+            self.detail_label.setText("No launcher-managed runs found.")
             return
         manifest = load_manifest(run_dir)
         lines = [f"Run: {run_dir.name}", f"Folder: {run_dir}"]
@@ -352,6 +372,15 @@ class LauncherWindow(QMainWindow):
         if manifest.get("status"):
             lines.append(f"Status: {manifest['status']}")
         self.detail_label.setText("\n".join(lines))
+
+    def refresh_active_detail(self) -> None:
+        if self.tabs.currentIndex() == 1:
+            self.show_selected_run_detail()
+        else:
+            self.show_selected_config_detail()
+
+    def _on_tab_changed(self, _index: int) -> None:
+        self.refresh_active_detail()
 
     def append_log(self, text: str) -> None:
         if not text:
