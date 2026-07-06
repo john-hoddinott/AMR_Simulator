@@ -44,6 +44,7 @@ APP_TITLE = "AMR Simulator Launcher"
 REPO_ROOT = Path(__file__).resolve().parent
 WORKSPACE_ROOT = Path(r"D:\John\Documents\AMR Simulation")
 LAUNCHER_CONFIG_DIR = WORKSPACE_ROOT / "launcher_configs"
+LAUNCHER_CONFIG_ARCHIVE_DIR = LAUNCHER_CONFIG_DIR / "archive"
 LAUNCHER_RUNS_DIR = WORKSPACE_ROOT / "launcher_runs"
 MANIFEST_NAME = "run_manifest.json"
 
@@ -117,6 +118,23 @@ def write_manifest(run_dir: Path, data: dict) -> None:
     )
 
 
+def unique_child_path(folder: Path, filename: str) -> Path:
+    target = folder / filename
+    if not target.exists():
+        return target
+    stem = target.stem
+    suffix = target.suffix
+    return folder / f"{stem}_{now_stamp()}{suffix}"
+
+
+def is_launcher_config(path: Path) -> bool:
+    try:
+        path.resolve().relative_to(LAUNCHER_CONFIG_DIR.resolve())
+    except ValueError:
+        return False
+    return path.resolve().parent == LAUNCHER_CONFIG_DIR.resolve()
+
+
 class LauncherWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -129,6 +147,7 @@ class LauncherWindow(QMainWindow):
         self.cancel_requested = False
 
         LAUNCHER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        LAUNCHER_CONFIG_ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
         LAUNCHER_RUNS_DIR.mkdir(parents=True, exist_ok=True)
 
         self.config_paths: List[Path] = []
@@ -208,12 +227,18 @@ class LauncherWindow(QMainWindow):
         create_config.clicked.connect(self.create_config_copy)
         import_config = QPushButton("Import Config")
         import_config.clicked.connect(self.import_config)
+        archive_config = QPushButton("Archive Config")
+        archive_config.clicked.connect(self.archive_selected_config)
+        delete_config = QPushButton("Delete Config")
+        delete_config.clicked.connect(self.delete_selected_config)
         open_folder = QPushButton("Open Config Folder")
         open_folder.clicked.connect(lambda: open_path(LAUNCHER_CONFIG_DIR))
         actions.addWidget(open_editor, 0, 0)
         actions.addWidget(create_config, 0, 1)
         actions.addWidget(import_config, 1, 0)
         actions.addWidget(open_folder, 1, 1)
+        actions.addWidget(archive_config, 2, 0)
+        actions.addWidget(delete_config, 2, 1)
         layout.addWidget(action_box)
 
         run_box = QGroupBox("Run Simulation")
@@ -467,7 +492,10 @@ class LauncherWindow(QMainWindow):
         target = Path(name)
         if target.suffix.lower() != ".json":
             target = target.with_suffix(".json")
+        if target.parent.resolve() != LAUNCHER_CONFIG_DIR.resolve():
+            target = LAUNCHER_CONFIG_DIR / target.name
         target.parent.mkdir(parents=True, exist_ok=True)
+        target = unique_child_path(target.parent, target.name)
         shutil.copy2(source, target)
         self.refresh_configs(target)
         QMessageBox.information(self, "Config created", f"Created:\n{target}")
@@ -482,11 +510,57 @@ class LauncherWindow(QMainWindow):
         if not path:
             return
         source = Path(path)
-        target = LAUNCHER_CONFIG_DIR / source.name
-        if target.exists():
-            target = LAUNCHER_CONFIG_DIR / f"{source.stem}_{now_stamp()}{source.suffix}"
+        target = unique_child_path(LAUNCHER_CONFIG_DIR, source.name)
         shutil.copy2(source, target)
         self.refresh_configs(target)
+
+    def archive_selected_config(self) -> None:
+        path = self.selected_config_path()
+        if not path:
+            QMessageBox.warning(self, "No config", "Select a config first.")
+            return
+        if not is_launcher_config(path):
+            QMessageBox.warning(
+                self,
+                "Cannot archive",
+                "Only launcher-managed configs can be archived.",
+            )
+            return
+        if QMessageBox.question(
+            self,
+            "Archive config",
+            f"Archive this config?\n\n{path.name}\n\nIt will be hidden from the launcher list.",
+        ) != QMessageBox.Yes:
+            return
+        LAUNCHER_CONFIG_ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+        target = unique_child_path(LAUNCHER_CONFIG_ARCHIVE_DIR, path.name)
+        shutil.move(str(path), str(target))
+        self.refresh_configs()
+        self.detail_label.setText(f"Archived config:\n{target}")
+
+    def delete_selected_config(self) -> None:
+        path = self.selected_config_path()
+        if not path:
+            QMessageBox.warning(self, "No config", "Select a config first.")
+            return
+        if not is_launcher_config(path):
+            QMessageBox.warning(
+                self,
+                "Cannot delete",
+                "Only launcher-managed configs can be deleted.",
+            )
+            return
+        if QMessageBox.warning(
+            self,
+            "Delete config",
+            f"Permanently delete this launcher config?\n\n{path.name}\n\nThis does not delete the original file that was imported.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        ) != QMessageBox.Yes:
+            return
+        path.unlink()
+        self.refresh_configs()
+        self.detail_label.setText(f"Deleted launcher config:\n{path.name}")
 
     def run_selected_config(self) -> None:
         config = self.selected_config_path()
