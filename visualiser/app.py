@@ -2,6 +2,7 @@
 AMR Simulator app
 """
 
+import json
 import math
 import sys
 from pathlib import Path
@@ -2478,13 +2479,71 @@ class AMRGraphEditor(QMainWindow):
         self.canvas.scale(factor, factor)
         self.canvas.viewport().update()
 
-    def open_json(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Open JSON", "", "JSON files (*.json)"
+    def _show_config_validation_warning(self, path: str, errors: list[str]) -> None:
+        preview_limit = 50
+        shown_errors = errors[:preview_limit]
+        message_lines = [
+            f"{Path(path).name} was opened, but validation found {len(errors)} issue(s).",
+            "",
+            "You can continue editing the file and use Validate JSON after making changes.",
+            "",
+            *shown_errors,
+        ]
+        if len(errors) > preview_limit:
+            message_lines.append(
+                f"... plus {len(errors) - preview_limit} additional issue(s)."
+            )
+        QMessageBox.warning(
+            self,
+            "Config opened with validation issues",
+            "\n".join(message_lines),
         )
-        if not path:
-            return
-        self.store = JsonStore.from_file(path)
+
+    def load_json_file(self, path: str) -> bool:
+        try:
+            store = JsonStore.from_file(path)
+        except json.JSONDecodeError as exc:
+            QMessageBox.critical(
+                self,
+                "Could not open JSON",
+                f"{Path(path).name} is not valid JSON.\n\n{exc}",
+            )
+            self.set_status("JSON open failed: invalid JSON syntax")
+            return False
+        except OSError as exc:
+            QMessageBox.critical(
+                self,
+                "Could not open JSON",
+                f"{Path(path).name} could not be read.\n\n{exc}",
+            )
+            self.set_status("JSON open failed: file could not be read")
+            return False
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Could not open JSON",
+                f"{Path(path).name} could not be loaded.\n\n{exc}",
+            )
+            self.set_status("JSON open failed")
+            return False
+
+        if not isinstance(store.data, dict):
+            QMessageBox.critical(
+                self,
+                "Could not open JSON",
+                f"{Path(path).name} is valid JSON, but the top-level value is not an object.",
+            )
+            self.set_status("JSON open failed: top-level value is not an object")
+            return False
+
+        try:
+            validation_errors = store.validate()
+        except Exception as exc:
+            validation_errors = [
+                f"Validation could not complete. The file was opened for editing, but some editor features may need missing fields to be repaired first: {exc}"
+            ]
+
+        self.store = store
         self.current_json_path = path
         self.selected_point_name = None
         self.selected_point_names.clear()
@@ -2495,9 +2554,24 @@ class AMRGraphEditor(QMainWindow):
         current_floor = self.floor_spin.value()
         self._pending_fit_after_load = bool(self.get_floor_dxf_path(current_floor))
         self._queue_all_floor_dxf_loads(active_floor=current_floor, force_reload=False)
-        self.set_status(f"Opened {Path(path).name}")
+        if validation_errors:
+            self.set_status(
+                f"Opened {Path(path).name} with {len(validation_errors)} validation issue(s)"
+            )
+            self._show_config_validation_warning(path, validation_errors)
+        else:
+            self.set_status(f"Opened {Path(path).name}")
         self.refresh_canvas()
         self.fit_view()
+        return True
+
+    def open_json(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open JSON", "", "JSON files (*.json)"
+        )
+        if not path:
+            return
+        self.load_json_file(path)
 
     def save_json(self):
         path = self.current_json_path
