@@ -53,6 +53,19 @@ def now_stamp() -> str:
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
+def display_datetime(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return text.replace("T", " ")
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone()
+    return parsed.strftime("%d-%m-%Y %H:%M:%S")
+
+
 def open_path(path: Path) -> None:
     path = path.resolve()
     if sys.platform.startswith("win"):
@@ -366,11 +379,13 @@ class LauncherWindow(QMainWindow):
         if manifest.get("config_source"):
             lines.append(f"Config source: {manifest['config_source']}")
         if manifest.get("started_at"):
-            lines.append(f"Started: {manifest['started_at']}")
+            lines.append(f"Started: {display_datetime(manifest['started_at'])}")
         if manifest.get("completed_at"):
-            lines.append(f"Completed: {manifest['completed_at']}")
+            lines.append(f"Completed: {display_datetime(manifest['completed_at'])}")
         if manifest.get("status"):
             lines.append(f"Status: {manifest['status']}")
+        if manifest.get("report_completed_at"):
+            lines.append(f"Report completed: {display_datetime(manifest['report_completed_at'])}")
         self.detail_label.setText("\n".join(lines))
 
     def refresh_active_detail(self) -> None:
