@@ -1,3 +1,4 @@
+import argparse
 import ast
 import copy
 import csv
@@ -7369,14 +7370,34 @@ class SimulationVisualizer(QMainWindow):
         self.fit_view()
         self.view.viewport().update()
 
-    def open_json(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Open Layout JSON", "", "JSON files (*.json)"
-        )
-        if not path:
-            return
+    def load_json_file(self, path: str) -> bool:
+        try:
+            self.layout_model.load(path)
+        except json.JSONDecodeError as exc:
+            QMessageBox.critical(
+                self,
+                "Could not load layout JSON",
+                f"{Path(path).name} is not valid JSON.\n\n{exc}",
+            )
+            self.set_status("Layout JSON load failed: invalid JSON syntax")
+            return False
+        except OSError as exc:
+            QMessageBox.critical(
+                self,
+                "Could not load layout JSON",
+                f"{Path(path).name} could not be read.\n\n{exc}",
+            )
+            self.set_status("Layout JSON load failed: file could not be read")
+            return False
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Could not load layout JSON",
+                f"{Path(path).name} could not be loaded.\n\n{exc}",
+            )
+            self.set_status("Layout JSON load failed")
+            return False
 
-        self.layout_model.load(path)
         self.current_json_path = path
         self._invalidate_runtime_caches()
 
@@ -7400,6 +7421,15 @@ class SimulationVisualizer(QMainWindow):
 
         self.start_loading_floor_dxfs_from_json()
         self.set_status(f"Loaded layout {Path(path).name}")
+        return True
+
+    def open_json(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open Layout JSON", "", "JSON files (*.json)"
+        )
+        if not path:
+            return
+        self.load_json_file(path)
 
     def open_dxf(self):
         path, _ = QFileDialog.getOpenFileName(self, "Open DXF", "", "DXF files (*.dxf)")
@@ -7424,13 +7454,34 @@ class SimulationVisualizer(QMainWindow):
             label=f"Loading DXF for floor {floor}...",
         )
 
-    def open_csv(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Open Simulation CSV", "", "CSV files (*.csv)"
-        )
-        if not path:
-            return
-        self.sim_log.load(path)
+    def load_csv_file(self, path: str) -> bool:
+        try:
+            self.sim_log.load(path)
+        except OSError as exc:
+            QMessageBox.critical(
+                self,
+                "Could not load simulation CSV",
+                f"{Path(path).name} could not be read.\n\n{exc}",
+            )
+            self.set_status("Simulation CSV load failed: file could not be read")
+            return False
+        except csv.Error as exc:
+            QMessageBox.critical(
+                self,
+                "Could not load simulation CSV",
+                f"{Path(path).name} is not a valid CSV file.\n\n{exc}",
+            )
+            self.set_status("Simulation CSV load failed: invalid CSV")
+            return False
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Could not load simulation CSV",
+                f"{Path(path).name} could not be loaded.\n\n{exc}",
+            )
+            self.set_status("Simulation CSV load failed")
+            return False
+
         self.current_csv_path = path
         self._invalidate_runtime_caches()
         self.update_follow_amr_options()
@@ -7438,7 +7489,10 @@ class SimulationVisualizer(QMainWindow):
             QMessageBox.critical(
                 self, "No events", "No timestamped rows were found in the CSV."
             )
-            return
+            self.current_csv_path = None
+            self.update_loaded_files()
+            self.set_status("Simulation CSV load failed: no timestamped event rows")
+            return False
         self.update_loaded_files()
         self._sync_timeline_from_layout_and_csv()
         self.on_timeline_zoom_changed(self.timeline_zoom_combo.currentText())
@@ -7446,6 +7500,15 @@ class SimulationVisualizer(QMainWindow):
         self.set_status(
             f"Loaded simulation CSV {Path(path).name} with {len(self.sim_log.events)} events"
         )
+        return True
+
+    def open_csv(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open Simulation CSV", "", "CSV files (*.csv)"
+        )
+        if not path:
+            return
+        self.load_csv_file(path)
 
     def _content_bounds(self):
         floor = self.current_floor()
@@ -8411,7 +8474,22 @@ def configure_application_font(app: QApplication) -> None:
     app.setFont(font)
 
 
-if __name__ == "__main__":
+def _parse_visualiser_args(argv: List[str]):
+    parser = argparse.ArgumentParser(description="AMR simulation visualiser")
+    parser.add_argument(
+        "--config",
+        help="Open the selected AMR simulator layout JSON after startup.",
+    )
+    parser.add_argument(
+        "--csv",
+        help="Open the selected AMR simulation event CSV after startup.",
+    )
+    args, _unknown = parser.parse_known_args(argv)
+    return args
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    args = _parse_visualiser_args(sys.argv[1:] if argv is None else argv)
     if QOpenGLWidget is not None:
         default_format = QSurfaceFormat()
         default_format.setDepthBufferSize(24)
@@ -8425,4 +8503,18 @@ if __name__ == "__main__":
     configure_application_font(app)
     window = SimulationVisualizer()
     window.show()
-    sys.exit(app.exec())
+
+    def load_startup_files():
+        config_loaded = True
+        if args.config:
+            config_loaded = window.load_json_file(args.config)
+        if args.csv and config_loaded:
+            window.load_csv_file(args.csv)
+
+    if args.config or args.csv:
+        QTimer.singleShot(0, load_startup_files)
+    return app.exec()
+
+
+if __name__ == "__main__":
+    sys.exit(main())
