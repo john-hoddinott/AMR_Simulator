@@ -15,11 +15,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from PySide6.QtCore import QProcess, Qt, QTimer
-from PySide6.QtGui import QDesktopServices, QTextCursor
+from PySide6.QtCore import QProcess, QSize, Qt, QTimer
+from PySide6.QtGui import QAction, QDesktopServices, QIcon, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QFormLayout,
     QGridLayout,
@@ -33,20 +35,80 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QPlainTextEdit,
+    QSizePolicy,
     QSplitter,
+    QStyle,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 
-APP_TITLE = "AMR Simulator Launcher"
+APP_TITLE = "AMR Simulator"
 REPO_ROOT = Path(__file__).resolve().parent
-WORKSPACE_ROOT = Path(r"D:\John\Documents\AMR Simulation")
+APP_ICON_PATH = REPO_ROOT / "assets" / "amr_simulator_icon.svg"
+DEFAULT_WORKSPACE_ROOT = Path(r"D:\John\Documents\AMR Simulation")
+SETTINGS_PATH = Path.home() / ".amr_simulator_launcher.json"
+WORKSPACE_ROOT = DEFAULT_WORKSPACE_ROOT
 LAUNCHER_CONFIG_DIR = WORKSPACE_ROOT / "launcher_configs"
 LAUNCHER_CONFIG_ARCHIVE_DIR = LAUNCHER_CONFIG_DIR / "archive"
 LAUNCHER_RUNS_DIR = WORKSPACE_ROOT / "launcher_runs"
 MANIFEST_NAME = "run_manifest.json"
+CONFIG_MANIFEST_SUFFIX = ".launcher_manifest.json"
+CONFIG_MANIFEST_VERSION = 3
+CONFIG_SUMMARY_FIELDS = {
+    "locations",
+    "departments",
+    "floor_layouts",
+    "floors",
+    "amr_fleet",
+    "amr_types",
+    "payloads",
+    "tasks",
+    "route_profiles",
+    "graph_nodes",
+    "graph_edges",
+}
+
+
+def load_launcher_settings() -> dict:
+    if not SETTINGS_PATH.exists():
+        return {}
+    try:
+        data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_launcher_settings(data: dict) -> None:
+    try:
+        SETTINGS_PATH.write_text(
+            json.dumps(data, indent=2),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+
+
+def set_workspace_root(path: Path) -> None:
+    global WORKSPACE_ROOT, LAUNCHER_CONFIG_DIR, LAUNCHER_CONFIG_ARCHIVE_DIR, LAUNCHER_RUNS_DIR
+    WORKSPACE_ROOT = Path(path).expanduser().resolve()
+    LAUNCHER_CONFIG_DIR = WORKSPACE_ROOT / "launcher_configs"
+    LAUNCHER_CONFIG_ARCHIVE_DIR = LAUNCHER_CONFIG_DIR / "archive"
+    LAUNCHER_RUNS_DIR = WORKSPACE_ROOT / "launcher_runs"
+
+
+def load_workspace_root() -> None:
+    settings = load_launcher_settings()
+    configured_root = settings.get("workspace_root")
+    set_workspace_root(Path(configured_root) if configured_root else DEFAULT_WORKSPACE_ROOT)
+
+
+def ensure_dirs() -> None:
+    LAUNCHER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    LAUNCHER_CONFIG_ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+    LAUNCHER_RUNS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def now_stamp() -> str:
@@ -98,6 +160,8 @@ def discover_configs() -> List[Path]:
         for path in root.glob("*.json"):
             if path.name == MANIFEST_NAME:
                 continue
+            if path.name.endswith(CONFIG_MANIFEST_SUFFIX):
+                continue
             candidates[str(path.resolve()).lower()] = path.resolve()
     return sorted(candidates.values(), key=lambda item: item.name.lower())
 
@@ -105,11 +169,7 @@ def discover_configs() -> List[Path]:
 def discover_runs() -> List[Path]:
     if not LAUNCHER_RUNS_DIR.exists():
         return []
-    runs = [
-        path
-        for path in LAUNCHER_RUNS_DIR.iterdir()
-        if path.is_dir() and (path / MANIFEST_NAME).exists()
-    ]
+    runs = sorted({path.parent for path in LAUNCHER_RUNS_DIR.rglob(MANIFEST_NAME)})
     return sorted(runs, key=lambda item: item.name.lower(), reverse=True)
 
 
@@ -131,6 +191,164 @@ def write_manifest(run_dir: Path, data: dict) -> None:
     )
 
 
+def config_manifest_path(config_path: Path) -> Path:
+    return config_path.with_name(f"{config_path.stem}{CONFIG_MANIFEST_SUFFIX}")
+
+
+def config_modified_at(config_path: Path) -> str:
+    return datetime.fromtimestamp(config_path.stat().st_mtime).isoformat(
+        timespec="seconds"
+    )
+
+
+def load_config_manifest(config_path: Path) -> dict:
+    path = config_manifest_path(config_path)
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def list_count(data: dict, key: str) -> int:
+    value = data.get(key, [])
+    return len(value) if isinstance(value, (dict, list)) else 0
+
+
+def count_config_floors(data: dict) -> int:
+    floors = set()
+    floor_layouts = data.get("floor_dxf_files", [])
+    if isinstance(floor_layouts, list):
+        floors.update(item.get("floor") for item in floor_layouts if isinstance(item, dict))
+    for section_name in ("locations",):
+        section = data.get(section_name, [])
+        if isinstance(section, list):
+            floors.update(item.get("floor") for item in section if isinstance(item, dict))
+    corridors = data.get("corridors", {})
+    if isinstance(corridors, dict):
+        nodes = corridors.get("nodes", [])
+        if isinstance(nodes, list):
+            floors.update(item.get("floor") for item in nodes if isinstance(item, dict))
+    return len({floor for floor in floors if floor is not None})
+
+
+def summarize_amrs(data: dict) -> tuple[int, int]:
+    amrs = data.get("amrs", [])
+    if not isinstance(amrs, list):
+        return 0, 0
+    total_devices = 0
+    type_names = set()
+    for index, amr in enumerate(amrs):
+        if not isinstance(amr, dict):
+            total_devices += 1
+            type_names.add(str(index))
+            continue
+        type_names.add(str(amr.get("id") or amr.get("name") or index))
+        try:
+            total_devices += int(amr.get("quantity", 1))
+        except (TypeError, ValueError):
+            total_devices += 1
+    return total_devices, len(type_names)
+
+
+def build_config_manifest(config_path: Path) -> dict:
+    modified_at = config_modified_at(config_path)
+    manifest = {
+        "manifest_version": CONFIG_MANIFEST_VERSION,
+        "config_file": config_path.name,
+        "config_path": str(config_path),
+        "config_modified_at": modified_at,
+        "summary_generated_at": datetime.now().isoformat(timespec="seconds"),
+        "summary": {
+            "locations": 0,
+            "departments": 0,
+            "floor_layouts": 0,
+            "floors": 0,
+            "amr_fleet": 0,
+            "amr_types": 0,
+            "payloads": 0,
+            "tasks": 0,
+            "route_profiles": 0,
+            "graph_nodes": 0,
+            "graph_edges": 0,
+        },
+        "checks": {"status": "ok", "warnings": []},
+    }
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        manifest["checks"] = {
+            "status": "error",
+            "warnings": [f"Could not read config JSON: {exc}"],
+        }
+        return manifest
+
+    corridors = data.get("corridors", {})
+    if not isinstance(corridors, dict):
+        corridors = {}
+        manifest["checks"]["warnings"].append("Missing or invalid corridors section")
+
+    amr_fleet, amr_types = summarize_amrs(data)
+    manifest["summary"] = {
+        "locations": list_count(data, "locations"),
+        "departments": list_count(data, "departments"),
+        "floor_layouts": list_count(data, "floor_dxf_files"),
+        "floors": count_config_floors(data),
+        "amr_fleet": amr_fleet,
+        "amr_types": amr_types,
+        "payloads": list_count(data, "payloads"),
+        "tasks": list_count(data, "tasks"),
+        "route_profiles": list_count(data, "route_profiles"),
+        "graph_nodes": len(corridors.get("nodes", []))
+        if isinstance(corridors.get("nodes", []), list)
+        else 0,
+        "graph_edges": len(corridors.get("edges", []))
+        if isinstance(corridors.get("edges", []), list)
+        else 0,
+    }
+    expected_sections = ["locations", "amrs", "payloads", "tasks", "corridors"]
+    missing = [key for key in expected_sections if key not in data]
+    if missing:
+        manifest["checks"]["warnings"].append(
+            f"Missing sections: {', '.join(missing)}"
+        )
+    if manifest["checks"]["warnings"]:
+        manifest["checks"]["status"] = "warning"
+    return manifest
+
+
+def ensure_config_manifest(config_path: Path) -> dict:
+    manifest = load_config_manifest(config_path)
+    try:
+        modified_at = config_modified_at(config_path)
+    except OSError as exc:
+        return {
+            "config_file": config_path.name,
+            "checks": {"status": "error", "warnings": [str(exc)]},
+            "summary": {},
+        }
+    if manifest.get("config_modified_at") == modified_at and manifest.get("summary"):
+        summary = manifest.get("summary", {})
+        if (
+            manifest.get("manifest_version") == CONFIG_MANIFEST_VERSION
+            and CONFIG_SUMMARY_FIELDS.issubset(summary)
+        ):
+            return manifest
+    manifest = build_config_manifest(config_path)
+    try:
+        config_manifest_path(config_path).write_text(
+            json.dumps(manifest, indent=2),
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        manifest["checks"] = {
+            "status": "error",
+            "warnings": [f"Could not write config summary: {exc}"],
+        }
+    return manifest
+
+
 def unique_child_path(folder: Path, filename: str) -> Path:
     target = folder / filename
     if not target.exists():
@@ -138,6 +356,24 @@ def unique_child_path(folder: Path, filename: str) -> Path:
     stem = target.stem
     suffix = target.suffix
     return folder / f"{stem}_{now_stamp()}{suffix}"
+
+
+def safe_path_name(value: str, fallback: str = "untitled") -> str:
+    cleaned = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in value.strip())
+    cleaned = cleaned.strip("._-")
+    return cleaned or fallback
+
+
+def unique_run_dir(folder: Path, folder_name: str) -> Path:
+    target = folder / folder_name
+    if not target.exists():
+        return target
+    suffix = 2
+    while True:
+        candidate = folder / f"{folder_name}_{suffix}"
+        if not candidate.exists():
+            return candidate
+        suffix += 1
 
 
 def is_launcher_config(path: Path) -> bool:
@@ -152,6 +388,8 @@ class LauncherWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(APP_TITLE)
+        if APP_ICON_PATH.exists():
+            self.setWindowIcon(QIcon(str(APP_ICON_PATH)))
         self.resize(1100, 720)
 
         self.process: Optional[QProcess] = None
@@ -159,23 +397,22 @@ class LauncherWindow(QMainWindow):
         self.active_process_kind = ""
         self.cancel_requested = False
 
-        LAUNCHER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        LAUNCHER_CONFIG_ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
-        LAUNCHER_RUNS_DIR.mkdir(parents=True, exist_ok=True)
+        ensure_dirs()
 
         self.config_paths: List[Path] = []
         self.run_paths: List[Path] = []
+        self.run_report_available: Dict[str, bool] = {}
 
         self._build_ui()
         self.refresh_all()
 
     def _build_ui(self) -> None:
+        self._build_menu()
+
         root = QWidget()
         layout = QVBoxLayout(root)
-
-        header = QLabel(APP_TITLE)
-        header.setStyleSheet("font-size: 20px; font-weight: 600;")
-        layout.addWidget(header)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(8)
 
         splitter = QSplitter(Qt.Horizontal)
         layout.addWidget(splitter, 1)
@@ -206,28 +443,133 @@ class LauncherWindow(QMainWindow):
 
         self.detail_label = QLabel("Select a config or run.")
         self.detail_label.setWordWrap(True)
-        right_layout.addWidget(self.detail_label)
+        self.detail_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.detail_label.setFixedHeight(self.detail_label.fontMetrics().lineSpacing() * 9)
+        self.detail_group = QGroupBox("Details")
+        self.detail_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        detail_layout = QVBoxLayout(self.detail_group)
+        detail_layout.addWidget(self.detail_label)
+        right_layout.addWidget(self.detail_group)
 
         self.log_box = QPlainTextEdit()
         self.log_box.setReadOnly(True)
         self.log_box.setLineWrapMode(QPlainTextEdit.NoWrap)
-        right_layout.addWidget(self.log_box, 1)
+        log_group = QGroupBox("Activity Log")
+        log_layout = QVBoxLayout(log_group)
+        log_layout.addWidget(self.log_box)
+        right_layout.addWidget(log_group, 1)
 
         button_row = QHBoxLayout()
         self.refresh_btn = QPushButton("Refresh")
         self.refresh_btn.clicked.connect(self.refresh_all)
-        self.open_workspace_btn = QPushButton("Open Launcher Folder")
-        self.open_workspace_btn.clicked.connect(lambda: open_path(WORKSPACE_ROOT))
         self.cancel_btn = QPushButton("Cancel Running Process")
         self.cancel_btn.clicked.connect(self.cancel_running_process)
         self.cancel_btn.setEnabled(False)
         button_row.addWidget(self.refresh_btn)
-        button_row.addWidget(self.open_workspace_btn)
         button_row.addWidget(self.cancel_btn)
         button_row.addStretch(1)
         right_layout.addLayout(button_row)
 
         self.setCentralWidget(root)
+
+    def _build_menu(self) -> None:
+        settings_menu = self.menuBar().addMenu("&Settings")
+
+        storage_action = QAction("&Launcher Storage Location...", self)
+        storage_action.triggered.connect(self.choose_launcher_storage_location)
+        settings_menu.addAction(storage_action)
+
+        open_storage_action = QAction("&Open Launcher Storage Folder", self)
+        open_storage_action.triggered.connect(self.open_launcher_storage_folder)
+        settings_menu.addAction(open_storage_action)
+
+        help_menu = self.menuBar().addMenu("&Help")
+
+        about_action = QAction("&About / Credits", self)
+        about_action.triggered.connect(self.show_about_dialog)
+        help_menu.addAction(about_action)
+
+        license_action = QAction("View &Licence", self)
+        license_action.triggered.connect(self.show_license_dialog)
+        help_menu.addAction(license_action)
+
+    def choose_launcher_storage_location(self) -> None:
+        selected = QFileDialog.getExistingDirectory(
+            self,
+            "Launcher Storage Location",
+            str(WORKSPACE_ROOT),
+        )
+        if not selected:
+            return
+        new_root = Path(selected)
+        set_workspace_root(new_root)
+        ensure_dirs()
+        settings = load_launcher_settings()
+        settings["workspace_root"] = str(WORKSPACE_ROOT)
+        save_launcher_settings(settings)
+        self.refresh_all()
+        QMessageBox.information(
+            self,
+            "Launcher Storage Location",
+            (
+                "Launcher-managed configs and runs will now be stored under:\n\n"
+                f"{WORKSPACE_ROOT}"
+            ),
+        )
+
+    def open_launcher_storage_folder(self) -> None:
+        ensure_dirs()
+        open_path(WORKSPACE_ROOT)
+
+    def show_about_dialog(self) -> None:
+        QMessageBox.about(
+            self,
+            "About AMR Simulator",
+            (
+                "<h3>AMR Simulator</h3>"
+                "<p>A suite of tools to simulate Autonomous Mobile Robots, providing access "
+                "to the editor, simulator, report generation and visualiser tools from "
+                "one place.</p>"
+                "<p><b>Original project:</b> Autonomous Mobile Robot Simulator</p>"
+                "<p><b>Licence:</b> GNU Affero General Public License v3.0 "
+                "(AGPL-3.0). Use Help &gt; View Licence to read the full licence "
+                "text included with this repository.</p>"
+                "<p><b>Credits:</b> Original simulator project by the principal "
+                "upstream GitHub author, bomtellis, and contributors.</p>"
+                "<p>This project has been made possible thanks to the support "
+                "and contribution of the Healthier Futures Programme at Mid "
+                "Cheshire Hospitals NHS Foundation Trust.</p>"
+            ),
+        )
+
+    def show_license_dialog(self) -> None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("AMR Simulator Licence")
+        dialog.resize(760, 560)
+
+        layout = QVBoxLayout(dialog)
+        heading = QLabel("GNU Affero General Public License v3.0")
+        heading.setStyleSheet("font-size: 16px; font-weight: 600;")
+        layout.addWidget(heading)
+
+        text = QPlainTextEdit()
+        text.setReadOnly(True)
+        text.setLineWrapMode(QPlainTextEdit.NoWrap)
+        license_path = REPO_ROOT / "LICENSE"
+        try:
+            text.setPlainText(license_path.read_text(encoding="utf-8"))
+        except OSError as exc:
+            text.setPlainText(f"Could not read licence file:\n{license_path}\n\n{exc}")
+        layout.addWidget(text, 1)
+
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dialog.accept)
+        button_row = QHBoxLayout()
+        button_row.addStretch(1)
+        button_row.addWidget(close_btn)
+        layout.addLayout(button_row)
+
+        dialog.exec()
 
     def _config_tab(self) -> QWidget:
         page = QWidget()
@@ -280,21 +622,77 @@ class LauncherWindow(QMainWindow):
 
         action_box = QGroupBox("Run Actions")
         actions = QGridLayout(action_box)
-        open_folder = QPushButton("Open Run Folder")
-        open_folder.clicked.connect(self.open_selected_run_folder)
-        visualise = QPushButton("Open Visualiser")
+        self.report_action_btn = QPushButton("Generate Report")
+        self._style_run_action_button(
+            self.report_action_btn,
+            self.style().standardIcon(QStyle.SP_FileDialogContentsView),
+        )
+        self.report_action_btn.clicked.connect(self.handle_selected_report_action)
+
+        visualise = QPushButton("Visualise")
+        self._style_run_action_button(
+            visualise,
+            self.style().standardIcon(QStyle.SP_ComputerIcon),
+        )
         visualise.clicked.connect(self.open_visualiser)
-        report = QPushButton("Generate Report")
-        report.clicked.connect(self.generate_report_for_selected_run)
-        open_report = QPushButton("Open Report")
-        open_report.clicked.connect(self.open_selected_report)
-        actions.addWidget(open_folder, 0, 0)
-        actions.addWidget(visualise, 0, 1)
-        actions.addWidget(report, 1, 0)
-        actions.addWidget(open_report, 1, 1)
+
+        open_folder = QPushButton("Open Folder")
+        self._style_run_action_button(
+            open_folder,
+            self.style().standardIcon(QStyle.SP_DirOpenIcon),
+        )
+        open_folder.clicked.connect(self.open_selected_run_folder)
+
+        delete_run = QPushButton("Delete")
+        trash_icon = self.style().standardIcon(
+            getattr(QStyle, "SP_TrashIcon", QStyle.SP_DialogDiscardButton)
+        )
+        self._style_run_action_button(delete_run, trash_icon)
+        delete_run.clicked.connect(self.delete_selected_run)
+
+        actions.addWidget(self.report_action_btn, 0, 0, 1, 2)
+        actions.addWidget(visualise, 1, 0, 1, 2)
+        actions.addWidget(open_folder, 2, 0, 1, 2)
+        actions.addWidget(delete_run, 3, 0, 1, 2)
         layout.addWidget(action_box)
 
         return page
+
+    @staticmethod
+    def _style_run_action_button(button: QPushButton, icon: QIcon) -> None:
+        button.setIcon(icon)
+        button.setIconSize(QSize(18, 18))
+        button.setMinimumHeight(34)
+        button.setStyleSheet(
+            "QPushButton { text-align: left; padding-left: 14px; padding-right: 12px; }"
+        )
+
+    def prompt_scenario_intent(self) -> Optional[str]:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Scenario Intent")
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(
+            QLabel(
+                "Optionally record the purpose of this run. This will be saved "
+                "with the run manifest."
+            )
+        )
+        intent_edit = QPlainTextEdit()
+        intent_edit.setPlaceholderText(
+            "Example: Compare baseline AMR operation against increased morning theatre demand."
+        )
+        intent_edit.setMinimumHeight(90)
+        layout.addWidget(intent_edit)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Ok).setText("Start Run")
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec() != QDialog.Accepted:
+            return None
+        return intent_edit.toPlainText().strip()
 
     def refresh_all(self) -> None:
         selected_config = self.selected_config_path()
@@ -308,6 +706,7 @@ class LauncherWindow(QMainWindow):
         self.config_list.clear()
         selected_text = str(selected.resolve()).lower() if selected else ""
         for path in self.config_paths:
+            ensure_config_manifest(path)
             item = QListWidgetItem(json_name(path))
             item.setData(Qt.UserRole, str(path))
             self.config_list.addItem(item)
@@ -317,6 +716,7 @@ class LauncherWindow(QMainWindow):
             self.config_list.setCurrentRow(0)
         elif not self.config_list.count():
             if self.tabs.currentIndex() == 0:
+                self.detail_group.setTitle("Config Details")
                 self.detail_label.setText(
                     "No launcher-managed configs found. Import a JSON config or create "
                     "a copy in the launcher config folder to get started."
@@ -324,11 +724,15 @@ class LauncherWindow(QMainWindow):
 
     def refresh_runs(self, selected: Optional[Path] = None) -> None:
         self.run_paths = discover_runs()
+        self.run_report_available = {}
         self.run_list.clear()
         selected_text = str(selected.resolve()).lower() if selected else ""
         for path in self.run_paths:
             manifest = load_manifest(path)
             label = manifest.get("name") or path.name
+            outputs = manifest.get("outputs", {})
+            report_pdf = Path(outputs.get("report_pdf", path / "simulation_report.pdf"))
+            self.run_report_available[str(path.resolve()).lower()] = report_pdf.exists()
             item = QListWidgetItem(str(label))
             item.setData(Qt.UserRole, str(path))
             self.run_list.addItem(item)
@@ -336,6 +740,7 @@ class LauncherWindow(QMainWindow):
                 self.run_list.setCurrentItem(item)
         if self.run_list.count() and self.run_list.currentRow() < 0:
             self.run_list.setCurrentRow(0)
+        self.update_report_action_button()
 
     def selected_config_path(self) -> Optional[Path]:
         item = self.config_list.currentItem() if hasattr(self, "config_list") else None
@@ -355,6 +760,7 @@ class LauncherWindow(QMainWindow):
         self.show_selected_config_detail()
 
     def show_selected_config_detail(self) -> None:
+        self.detail_group.setTitle("Config Details")
         path = self.selected_config_path()
         if not path:
             self.detail_label.setText(
@@ -362,14 +768,34 @@ class LauncherWindow(QMainWindow):
                 "a copy in the launcher config folder to get started."
             )
             return
-        self.detail_label.setText(f"Config: {path}")
+        manifest = ensure_config_manifest(path)
+        summary = manifest.get("summary", {})
+        checks = manifest.get("checks", {})
+        warnings = checks.get("warnings", [])
+        check_status = str(checks.get("status", "unknown")).upper()
+        if warnings:
+            check_status = f"{check_status} ({len(warnings)} warning{'s' if len(warnings) != 1 else ''})"
+        lines = [
+            f"Config: {path.name}",
+            f"Locations: {summary.get('locations', 0):,}     Departments: {summary.get('departments', 0):,}",
+            f"Floor Layouts: {summary.get('floor_layouts', 0):,}/{summary.get('floors', 0):,}",
+            f"AMR Fleet: {summary.get('amr_fleet', 0):,}     AMR Types: {summary.get('amr_types', 0):,}",
+            f"Payloads: {summary.get('payloads', 0):,}",
+            f"Tasks: {summary.get('tasks', 0):,}",
+            f"Route profiles: {summary.get('route_profiles', 0):,}",
+            f"Graph: {summary.get('graph_nodes', 0):,} nodes, {summary.get('graph_edges', 0):,} edges",
+            f"Checks: {check_status}",
+        ]
+        self.detail_label.setText("\n".join(lines))
 
     def _on_run_selected(self) -> None:
         if self.tabs.currentIndex() != 1:
             return
         self.show_selected_run_detail()
+        self.update_report_action_button()
 
     def show_selected_run_detail(self) -> None:
+        self.detail_group.setTitle("Run Details")
         run_dir = self.selected_run_dir()
         if not run_dir:
             self.detail_label.setText("No launcher-managed runs found.")
@@ -384,9 +810,68 @@ class LauncherWindow(QMainWindow):
             lines.append(f"Completed: {display_datetime(manifest['completed_at'])}")
         if manifest.get("status"):
             lines.append(f"Status: {manifest['status']}")
+        if manifest.get("scenario_intent"):
+            lines.append(f"Intent: {manifest['scenario_intent']}")
         if manifest.get("report_completed_at"):
             lines.append(f"Report completed: {display_datetime(manifest['report_completed_at'])}")
+        if self.selected_run_has_report():
+            report_state = "available"
+        elif self.selected_run_is_complete():
+            report_state = "not generated"
+        else:
+            report_state = "only available for completed runs"
+        lines.append(f"Report: {report_state}")
         self.detail_label.setText("\n".join(lines))
+
+    def selected_run_is_complete(self) -> bool:
+        run_dir = self.selected_run_dir()
+        if not run_dir:
+            return False
+        manifest = load_manifest(run_dir)
+        return str(manifest.get("status", "")).lower() == "complete"
+
+    def selected_run_has_report(self) -> bool:
+        run_dir = self.selected_run_dir()
+        if not run_dir:
+            return False
+        key = str(run_dir.resolve()).lower()
+        return bool(self.run_report_available.get(key, False))
+
+    def update_report_action_button(self) -> None:
+        if not hasattr(self, "report_action_btn"):
+            return
+        run_dir = self.selected_run_dir()
+        if not run_dir:
+            self.report_action_btn.setText("Generate Report")
+            self.report_action_btn.setIcon(
+                self.style().standardIcon(QStyle.SP_FileDialogContentsView)
+            )
+            self.report_action_btn.setEnabled(False)
+            return
+        if not self.selected_run_is_complete():
+            self.report_action_btn.setText("Report Unavailable")
+            self.report_action_btn.setIcon(
+                self.style().standardIcon(QStyle.SP_FileDialogContentsView)
+            )
+            self.report_action_btn.setEnabled(False)
+            return
+        if self.selected_run_has_report():
+            self.report_action_btn.setText("Open Report")
+            self.report_action_btn.setIcon(
+                self.style().standardIcon(QStyle.SP_FileDialogDetailedView)
+            )
+        else:
+            self.report_action_btn.setText("Generate Report")
+            self.report_action_btn.setIcon(
+                self.style().standardIcon(QStyle.SP_FileDialogContentsView)
+            )
+        self.report_action_btn.setEnabled(True)
+
+    def handle_selected_report_action(self) -> None:
+        if self.selected_run_has_report():
+            self.open_selected_report()
+        else:
+            self.generate_report_for_selected_run()
 
     def refresh_active_detail(self) -> None:
         if self.tabs.currentIndex() == 1:
@@ -507,18 +992,17 @@ class LauncherWindow(QMainWindow):
             return
         started = self.start_detached(
             sys.executable,
-            [str(REPO_ROOT / "visualiser" / "amr_editor_main.py")],
+            [
+                str(REPO_ROOT / "visualiser" / "amr_editor_main.py"),
+                "--config",
+                str(path),
+            ],
             REPO_ROOT / "visualiser",
         )
         if not started:
             QMessageBox.critical(self, "Editor failed", "Could not start the editor.")
             return
-        QMessageBox.information(
-            self,
-            "Open config",
-            "The editor has opened. Use Open JSON in the editor and select:\n"
-            f"{path}",
-        )
+        self.append_log(f"Editor opened with config: {path}")
 
     def create_config_copy(self) -> None:
         source = self.selected_config_path()
@@ -579,6 +1063,12 @@ class LauncherWindow(QMainWindow):
         LAUNCHER_CONFIG_ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
         target = unique_child_path(LAUNCHER_CONFIG_ARCHIVE_DIR, path.name)
         shutil.move(str(path), str(target))
+        sidecar = config_manifest_path(path)
+        if sidecar.exists():
+            shutil.move(
+                str(sidecar),
+                str(unique_child_path(LAUNCHER_CONFIG_ARCHIVE_DIR, sidecar.name)),
+            )
         self.refresh_configs()
         self.detail_label.setText(f"Archived config:\n{target}")
 
@@ -603,6 +1093,9 @@ class LauncherWindow(QMainWindow):
         ) != QMessageBox.Yes:
             return
         path.unlink()
+        sidecar = config_manifest_path(path)
+        if sidecar.exists():
+            sidecar.unlink()
         self.refresh_configs()
         self.detail_label.setText(f"Deleted launcher config:\n{path.name}")
 
@@ -612,10 +1105,22 @@ class LauncherWindow(QMainWindow):
             QMessageBox.warning(self, "No config", "Select a config first.")
             return
 
+        scenario_intent = self.prompt_scenario_intent()
+        if scenario_intent is None:
+            return
+
+        config_name = safe_path_name(config.stem, "config")
         name_text = self.run_name_edit.text().strip()
-        safe_name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in name_text)
-        folder_name = f"{now_stamp()}_{safe_name}" if safe_name else now_stamp()
-        run_dir = LAUNCHER_RUNS_DIR / folder_name
+        safe_name = safe_path_name(name_text, "")
+        timestamp = now_stamp()
+        folder_name = (
+            f"{config_name}_{timestamp}_{safe_name}"
+            if safe_name
+            else f"{config_name}_{timestamp}"
+        )
+        config_run_dir = LAUNCHER_RUNS_DIR / config_name
+        config_run_dir.mkdir(parents=True, exist_ok=True)
+        run_dir = unique_run_dir(config_run_dir, folder_name)
         run_dir.mkdir(parents=True, exist_ok=False)
 
         config_copy = run_dir / "config.json"
@@ -624,6 +1129,9 @@ class LauncherWindow(QMainWindow):
         verbose_enabled = self.verbose_combo.currentIndex() == 0
         manifest = {
             "name": folder_name,
+            "config_name": config.stem,
+            "config_group": config_name,
+            "scenario_intent": scenario_intent,
             "status": "running",
             "started_at": datetime.now().isoformat(timespec="seconds"),
             "config_source": str(config),
@@ -685,34 +1193,89 @@ class LauncherWindow(QMainWindow):
             return
         open_path(run_dir)
 
+    def delete_selected_run(self) -> None:
+        run_dir = self.selected_run_dir()
+        if not run_dir:
+            QMessageBox.warning(self, "No run", "Select a run first.")
+            return
+        if (
+            self.process is not None
+            and self.process.state() != QProcess.NotRunning
+            and self.current_run_dir is not None
+            and self.current_run_dir.resolve() == run_dir.resolve()
+        ):
+            QMessageBox.warning(
+                self,
+                "Run in progress",
+                "This run is currently active. Cancel or wait for it to finish before deleting it.",
+            )
+            return
+        if QMessageBox.warning(
+            self,
+            "Delete run",
+            f"Permanently delete this run folder and all outputs?\n\n{run_dir}",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        ) != QMessageBox.Yes:
+            return
+        try:
+            shutil.rmtree(run_dir)
+        except OSError as exc:
+            QMessageBox.critical(self, "Delete failed", f"Could not delete run:\n{exc}")
+            return
+        if self.current_run_dir is not None and self.current_run_dir.resolve() == run_dir.resolve():
+            self.current_run_dir = None
+        self.refresh_runs()
+        self.refresh_active_detail()
+        self.append_log(f"Deleted run: {run_dir}")
+
     def open_visualiser(self) -> None:
         run_dir = self.selected_run_dir()
         if not run_dir:
             QMessageBox.warning(self, "No run", "Select a run first.")
             return
+        manifest = load_manifest(run_dir)
+        outputs = manifest.get("outputs", {})
+        csv_path = Path(
+            outputs.get("visualiser_csv")
+            or outputs.get("steps_csv", run_dir / "simulation_steps.csv")
+        )
+        config_json = run_dir / "config.json"
+        if not config_json.exists():
+            QMessageBox.warning(self, "Missing config", f"Run config not found:\n{config_json}")
+            return
+        if not csv_path.exists():
+            QMessageBox.warning(self, "Missing CSV", f"Simulation CSV not found:\n{csv_path}")
+            return
         started = self.start_detached(
             sys.executable,
-            [str(REPO_ROOT / "visualiser" / "amr_sim_visualiser_pyside6.py")],
+            [
+                str(REPO_ROOT / "visualiser" / "amr_sim_visualiser_pyside6.py"),
+                "--config",
+                str(config_json),
+                "--csv",
+                str(csv_path),
+            ],
             REPO_ROOT / "visualiser",
         )
         if not started:
             QMessageBox.critical(self, "Visualiser failed", "Could not start the visualiser.")
             return
-        manifest = load_manifest(run_dir)
-        outputs = manifest.get("outputs", {})
-        csv_path = outputs.get("visualiser_csv") or outputs.get("steps_csv")
-        QMessageBox.information(
-            self,
-            "Open run in visualiser",
-            "The visualiser has opened. Use Open Layout JSON and Open Simulation CSV with:\n\n"
-            f"Layout JSON:\n{run_dir / 'config.json'}\n\n"
-            f"Simulation CSV:\n{csv_path}",
-        )
+        self.append_log(f"Visualiser opened with config: {config_json}")
+        self.append_log(f"Visualiser opened with CSV: {csv_path}")
 
     def generate_report_for_selected_run(self) -> None:
         run_dir = self.selected_run_dir()
         if not run_dir:
             QMessageBox.warning(self, "No run", "Select a run first.")
+            return
+        if not self.selected_run_is_complete():
+            QMessageBox.warning(
+                self,
+                "Run incomplete",
+                "Reports can only be generated for runs that completed successfully.",
+            )
+            self.update_report_action_button()
             return
         manifest = load_manifest(run_dir)
         outputs = manifest.get("outputs", {})
@@ -758,7 +1321,10 @@ class LauncherWindow(QMainWindow):
 
 
 def main() -> int:
+    load_workspace_root()
     app = QApplication.instance() or QApplication(sys.argv)
+    if APP_ICON_PATH.exists():
+        app.setWindowIcon(QIcon(str(APP_ICON_PATH)))
     window = LauncherWindow()
     window.show()
     return app.exec()
