@@ -7,6 +7,7 @@ import copy
 import io
 import re
 import tempfile
+from datetime import datetime
 from xml.sax.saxutils import escape
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
@@ -43,6 +44,7 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
+from reportlab.platypus.tableofcontents import IndexingFlowable
 try:
     from svglib.svglib import svg2rlg
 except Exception:  # SVG conversion is optional when --omit-drawings is used
@@ -97,6 +99,10 @@ REPORT_SECTION_PAGE_TEMPLATES = {
     "task_detail": "a3_landscape",
     "heatmaps": "a0_landscape",
 }
+
+
+def section_anchor(section_id: str) -> str:
+    return f"section_{re.sub(r'[^A-Za-z0-9_]+', '_', str(section_id or ''))}"
 
 
 def normalise_report_sections(
@@ -175,6 +181,10 @@ class SectionedStory:
             result.append(NextPageTemplate(template_id))
             if not first_section:
                 result.append(PageBreak())
+            if section_id != "front_summary":
+                result.append(
+                    SectionAnchor(section_anchor(section_id), REPORT_SECTION_LABELS[section_id])
+                )
             result.extend(section_flowables)
             first_section = False
         return result
@@ -226,7 +236,124 @@ def make_styles():
             spaceAfter=4,
         )
     )
+    styles.add(
+        ParagraphStyle(
+            name="TOCEntry",
+            parent=styles["Normal"],
+            fontName="Helvetica",
+            fontSize=9.5,
+            leading=12,
+            textColor=colors.HexColor("#17365D"),
+            spaceAfter=2,
+        )
+    )
     return styles
+
+
+class SectionAnchor(Flowable):
+    def __init__(self, anchor_name: str, title: str):
+        super().__init__()
+        self.anchor_name = str(anchor_name or "").strip()
+        self.title = str(title or "").strip()
+
+    def wrap(self, availWidth, availHeight):
+        return 0, 0
+
+    def draw(self):
+        if not self.anchor_name:
+            return
+        self.canv.bookmarkPage(self.anchor_name)
+        if self.title:
+            self.canv.addOutlineEntry(self.title, self.anchor_name, level=0, closed=False)
+
+
+class LinkedTableOfContents(IndexingFlowable):
+    def __init__(self, styles, selected_section_order: Sequence[str]):
+        super().__init__()
+        self.styles = styles
+        self.selected_section_order = list(selected_section_order or [])
+        self._entries = []
+        self._lastEntries = []
+        self._table = None
+
+    def beforeBuild(self):
+        self._lastEntries = self._entries[:]
+        self._entries = []
+
+    def isIndexing(self):
+        return 1
+
+    def isSatisfied(self):
+        return self._entries == self._lastEntries
+
+    def notify(self, kind, stuff):
+        if kind == "TOCEntry":
+            level, text, page_number, key = stuff
+            self._entries.append((level, str(text), int(page_number), str(key or "")))
+
+    def _fallback_entries(self):
+        return [
+            (
+                0,
+                REPORT_SECTION_LABELS.get(section_id, section_id),
+                0,
+                section_anchor(section_id),
+            )
+            for section_id in self.selected_section_order
+        ]
+
+    def wrap(self, availWidth, availHeight):
+        entries = self._lastEntries or self._fallback_entries()
+        rows = [
+            [
+                Paragraph("<b>Section</b>", self.styles["Small"]),
+                Paragraph("<b>Page number</b>", self.styles["Small"]),
+            ]
+        ]
+        for _level, text, page_number, key in entries:
+            label = escape(str(text))
+            page = "" if not page_number else str(page_number)
+            if key:
+                label = f'<a href="#{key}">{label}</a>'
+                page = f'<a href="#{key}">{page}</a>' if page else ""
+            rows.append(
+                [
+                    Paragraph(label, self.styles["TOCEntry"]),
+                    Paragraph(page, self.styles["TOCEntry"]),
+                ]
+            )
+        if len(rows) == 1:
+            rows.append([Paragraph("No report sections selected.", self.styles["TOCEntry"]), ""])
+
+        self._table = Table(
+            rows,
+            colWidths=[135 * mm, 35 * mm],
+            style=TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#D9E2F3")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#17365D")),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8),
+                    ("LEADING", (0, 0), (-1, -1), 10),
+                    ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#B8CCE4")),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F7F9FC")]),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                    ("ALIGN", (1, 1), (1, -1), "RIGHT"),
+                ]
+            ),
+        )
+        self.width, self.height = self._table.wrap(availWidth, availHeight)
+        return self.width, self.height
+
+    def split(self, availWidth, availHeight):
+        return self._table.split(availWidth, availHeight) if self._table else []
+
+    def drawOn(self, canvas, x, y, _sW=0):
+        self._table.drawOn(canvas, x, y, _sW)
 
 
 class NumberedDocTemplate(BaseDocTemplate):
@@ -356,6 +483,18 @@ class NumberedDocTemplate(BaseDocTemplate):
         )
         canvas.restoreState()
 
+    def afterFlowable(self, flowable):
+        if isinstance(flowable, SectionAnchor) and flowable.title:
+            self.notify(
+                "TOCEntry",
+                (
+                    0,
+                    escape(flowable.title),
+                    self.page,
+                    flowable.anchor_name,
+                ),
+            )
+
 
 def natural_key(s):
     return tuple(
@@ -438,6 +577,75 @@ def table_from_df(
             style.add("ALIGN", (idx, 1), (idx, -1), "RIGHT")
     tbl.setStyle(style)
     return tbl
+
+
+def format_manifest_datetime(value) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "-"
+    try:
+        parsed = datetime.fromisoformat(text)
+        return parsed.strftime("%d-%m-%Y %H:%M:%S")
+    except ValueError:
+        return text.replace("T", " ")
+
+
+def display_path(value) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "-"
+    try:
+        path = Path(text)
+        return path.name or text
+    except Exception:
+        return text
+
+
+def run_manifest_table(run_manifest: Optional[dict], csv_path: Path, styles) -> Table:
+    manifest = run_manifest or {}
+    outputs = manifest.get("outputs", {}) if isinstance(manifest.get("outputs"), dict) else {}
+    rows = [
+        ["Run name", manifest.get("name") or "-"],
+        ["Status", manifest.get("status") or "-"],
+        ["Started", format_manifest_datetime(manifest.get("started_at"))],
+        ["Completed", format_manifest_datetime(manifest.get("completed_at"))],
+        ["Source config", display_path(manifest.get("config_source"))],
+        ["Run config", display_path(manifest.get("config_copy"))],
+        ["Simulation CSV", display_path(outputs.get("steps_csv") or csv_path)],
+    ]
+    report_status = manifest.get("report_status")
+    if report_status:
+        rows.append(["Report status", report_status])
+
+    table = Table(
+        [
+            [
+                Paragraph(f"<b>{escape(str(label))}</b>", styles["Small"]),
+                Paragraph(escape(str(value)), styles["Small"]),
+            ]
+            for label, value in rows
+        ],
+        colWidths=[35 * mm, 135 * mm],
+    )
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#EAF2F8")),
+                ("BOX", (0, 0), (-1, -1), 0.4, colors.HexColor("#B7C9D6")),
+                ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#D8E4EC")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ]
+        )
+    )
+    return table
+
+
+def table_of_contents(selected_section_order: Sequence[str], styles) -> List:
+    return [LinkedTableOfContents(styles, selected_section_order)]
 
 
 CATEGORY_PALETTE = [
@@ -1262,6 +1470,7 @@ def build_report(
     heatmap_workers: Optional[int] = None,
     include_drawings: bool = True,
     report_sections: Optional[Sequence[str]] = None,
+    run_manifest: Optional[dict] = None,
 ) -> None:
     styles = make_styles()
     selected_section_order = normalise_report_sections(report_sections)
@@ -1301,6 +1510,15 @@ def build_report(
             styles["BodyText"],
         ),
         Spacer(1, 6),
+        Paragraph("Run details", styles["Section"]),
+        run_manifest_table(run_manifest, csv_path, styles),
+        Spacer(1, 8),
+        Paragraph("Table of contents", styles["Section"]),
+    ]
+    story += table_of_contents(selected_section_order, styles)
+    story += [
+        PageBreak(),
+        SectionAnchor(section_anchor("front_summary"), REPORT_SECTION_LABELS["front_summary"]),
         Paragraph("Executive summary", styles["Section"]),
         table_from_df(results["summary"], [70 * mm, 100 * mm], styles),
         NextPageTemplate("landscape"),
@@ -2557,5 +2775,5 @@ def build_report(
     # --- END Heat map ---
 
     report_progress(10, 11, "Building PDF")
-    doc.build(story.flowables())
+    doc.multiBuild(story.flowables())
     report_progress(11, 11, "PDF complete")

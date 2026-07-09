@@ -21,6 +21,23 @@ from amr_report_pdf_report import (
 from amr_report_cli import parse_args
 
 
+def load_run_manifest(csv_path: Path, out_path: Path) -> dict:
+    candidates = [
+        Path(out_path).parent / "run_manifest.json",
+        Path(csv_path).parent / "run_manifest.json",
+    ]
+    for manifest_path in candidates:
+        if not manifest_path.exists():
+            continue
+        try:
+            with manifest_path.open("r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
 def export_failed_tasks_csv(source_csv: Path, output_csv: Path) -> None:
     df = pd.read_csv(source_csv, low_memory=False)
     event_col = "event_type" if "event_type" in df.columns else ""
@@ -293,6 +310,7 @@ def generate_report_from_paths(
         emit_progress(30, 100, f"Failed-task CSV written to {failed_tasks_csv}")
 
     emit_progress(35, 100, "Building PDF report")
+    run_manifest = load_run_manifest(csv_path, out_path)
 
     def report_progress(current: int, total: int, message: str = "") -> None:
         # Map report build progress into the 35-100 range
@@ -309,6 +327,7 @@ def generate_report_from_paths(
         heatmap_workers=heatmap_workers,
         include_drawings=include_drawings,
         report_sections=report_sections,
+        run_manifest=run_manifest,
     )
 
     emit_progress(100, 100, f"Report written to {out_path}")
