@@ -18,7 +18,7 @@ from amr_sim_energy import (
     total_lift_energy_kwh,
     total_route_energy_kwh,
 )
-from amr_sim_models import AMR, Event, Lift, Location, PayloadType, Task
+from amr_sim_models import AMR, Event, Lift, Location, PayloadType, StaffDeliveryResource, Task
 from amr_sim_payload_instances import (
     EMPTY_PAYLOAD_NAME,
     PayloadInstanceStore,
@@ -681,6 +681,41 @@ class Simulation:
         self.amrs_by_id: Dict[str, AMR] = {amr.id: amr for amr in self.amrs}
         self._assign_initial_amrs_to_charge_inventory_spaces()
         self.amrs_by_id = {amr.id: amr for amr in self.amrs}
+
+        self.staff_delivery_resources: List[StaffDeliveryResource] = []
+        for resource_type in config.get("staff_delivery_resources", []) or []:
+            if not isinstance(resource_type, dict):
+                continue
+            type_id = str(resource_type.get("id", "PORTER") or "PORTER").strip()
+            base_location = str(resource_type.get("base_location", "") or "").strip()
+            for index in range(max(0, int(resource_type.get("quantity", 1) or 1))):
+                self.staff_delivery_resources.append(
+                    StaffDeliveryResource(
+                        id=f"{type_id}-{index + 1}",
+                        resource_type=type_id,
+                        base_location=base_location,
+                        location_name=base_location,
+                        speed_m_per_sec=max(0.01, float(resource_type.get("speed_m_per_sec", 1.2) or 1.2)),
+                        payload_capacity_kg=max(0.0, float(resource_type.get("payload_capacity_kg", 25.0) or 0.0)),
+                        payload_length_capacity_m=max(0.0, float(resource_type.get("payload_length_capacity_m", 1.0) or 0.0)),
+                        payload_width_capacity_m=max(0.0, float(resource_type.get("payload_width_capacity_m", 0.8) or 0.0)),
+                        payload_height_capacity_m=max(0.0, float(resource_type.get("payload_height_capacity_m", 1.5) or 0.0)),
+                        turnaround_time_sec=max(0.0, float(resource_type.get("turnaround_time_sec", 0.0) or 0.0)),
+                        allowed_payload_types=[
+                            str(value).strip()
+                            for value in resource_type.get("allowed_payload_types", []) or []
+                            if str(value).strip()
+                        ],
+                        capabilities=[
+                            str(value).strip()
+                            for value in resource_type.get("capabilities", []) or []
+                            if str(value).strip()
+                        ],
+                    )
+                )
+        self.staff_delivery_resources_by_id = {
+            resource.id: resource for resource in self.staff_delivery_resources
+        }
 
         # Parse tasks from configuration
 
@@ -5211,6 +5246,10 @@ class Simulation:
             department_id=str(getattr(task, "department_id", "") or ""),
             waste_stream=str(getattr(task, "waste_stream", "") or ""),
             container_type=return_payload,
+            delivery_resource=dict(
+                getattr(task, "delivery_resource", {"mode": "amr"})
+                or {"mode": "amr"}
+            ),
             payload_instance_id=(
                 str(getattr(task, "payload_instance_id", "") or "").strip()
                 if bool(getattr(task, "return_same_payload_instance", False))
@@ -8120,6 +8159,165 @@ class Simulation:
             },
         )
 
+    @staticmethod
+    def _delivery_resource_policy(task: Task) -> dict:
+        value = getattr(task, "delivery_resource", None)
+        if isinstance(value, str):
+            value = {"mode": value}
+        if not isinstance(value, dict):
+            value = {}
+        mode = str(value.get("mode", "amr") or "amr").strip().lower()
+        if mode not in {"amr", "staff", "either"}:
+            mode = "amr"
+        return {
+            "mode": mode,
+            "allowed_amr_types": [str(x).strip() for x in value.get("allowed_amr_types", []) or [] if str(x).strip()],
+            "allowed_staff_types": [str(x).strip() for x in value.get("allowed_staff_types", []) or [] if str(x).strip()],
+            "required_capabilities": [str(x).strip() for x in value.get("required_capabilities", []) or [] if str(x).strip()],
+        }
+
+    def _staff_can_deliver_task(self, staff: StaffDeliveryResource, task: Task) -> bool:
+        policy = self._delivery_resource_policy(task)
+        if policy["mode"] not in {"staff", "either"}:
+            return False
+        if policy["allowed_staff_types"] and staff.resource_type not in policy["allowed_staff_types"]:
+            return False
+        if not set(policy["required_capabilities"]).issubset(set(staff.capabilities)):
+            return False
+        payload = self._payload_for_task(task)
+        return bool(payload is not None and staff.can_carry(payload))
+
+    def _estimate_task_for_staff(
+        self, staff: StaffDeliveryResource, task: Task, reserve: bool = False
+    ) -> Optional[dict]:
+        if task.pickup not in self.locations or task.dropoff not in self.locations:
+            return None
+        if staff.location_name not in self.locations or not self._staff_can_deliver_task(staff, task):
+            return None
+        if not self._pickup_instance_available(task):
+            self._set_task_pending_reason(task, self._pickup_instance_pending_reason(task))
+            return None
+
+        payload = self._payload_for_task(task)
+        start = self.locations[staff.location_name]
+        pickup = self.locations[task.pickup]
+        dropoff = self.locations[task.dropoff]
+        t = max(self.current_time, staff.available_time, task.release_time)
+        task_start_time = t
+        segments = []
+        total = 0.0
+        lift_empty_sec_total = 0.0
+        lift_loaded_sec_total = 0.0
+
+        def move_between(location_a, location_b, current_time_value, rules, carried_payload):
+            nonlocal lift_empty_sec_total, lift_loaded_sec_total
+            if location_a.floor == location_b.floor:
+                result = self._same_floor_segments(
+                    staff, location_a, location_b, rules=rules,
+                    start_time_value=current_time_value, payload=carried_payload,
+                    orientation="lengthways",
+                )
+                if result is None:
+                    return None
+                route_segments, duration, _distance = result
+                if reserve:
+                    self._reserve_corridor_segments(staff, route_segments, current_time_value)
+                return route_segments, current_time_value + duration, duration
+
+            plan = self._nearest_compatible_lift_plan(
+                current_time_value, staff, location_a, location_b,
+                carried_payload, rules=rules, orientation="lengthways",
+            )
+            if plan is None:
+                return None
+            if reserve:
+                self._reserve_corridor_segments(staff, plan["to_lift_segments"], current_time_value)
+                self._reserve_corridor_segments(staff, plan["from_lift_segments"], plan["lift_finish"])
+                self._reserve_lift_journey(plan, staff.id)
+                self._apply_lift_journey_wear(
+                    plan["lift"],
+                    float(plan.get("reposition_sec", 0.0)) + float(plan.get("loaded_travel_sec", 0.0)),
+                    plan["lift_finish"],
+                )
+            route_segments = list(plan["to_lift_segments"])
+            if plan["wait_time"] > 0:
+                route_segments.append({
+                    "type": "wait_for_lift", "lift_id": plan["lift"].id,
+                    "from": plan["origin_lift"].name, "to": plan["origin_lift"].name,
+                    "duration": plan["wait_time"], "distance_m": 0.0,
+                })
+            if plan.get("reposition_sec", 0.0) > 0:
+                route_segments.append({
+                    "type": "lift_reposition", "lift_id": plan["lift"].id,
+                    "from": plan["origin_lift"].name, "to": plan["origin_lift"].name,
+                    "duration": plan["reposition_sec"], "distance_m": 0.0,
+                })
+            route_segments.append({
+                "type": "lift_transfer", "lift_id": plan["lift"].id,
+                "from": plan["origin_lift"].name, "to": plan["destination_lift"].name,
+                "from_floor": location_a.floor, "to_floor": location_b.floor,
+                "duration": max(0.0, plan["lift_finish"] - plan.get("reposition_finish", plan["lift_start"])),
+                "distance_m": plan["vertical_distance_m"],
+                "vertical_distance_m": plan["vertical_distance_m"],
+            })
+            route_segments.extend(plan["from_lift_segments"])
+            lift_empty_sec_total += float(plan.get("reposition_sec", 0.0))
+            lift_loaded_sec_total += float(plan.get("loaded_travel_sec", 0.0))
+            return route_segments, plan["final_finish"], plan["final_finish"] - current_time_value
+
+        empty_payload = self.payloads.get(EMPTY_PAYLOAD_NAME, payload)
+        first_leg = move_between(start, pickup, t, None, empty_payload)
+        if first_leg is None:
+            self._set_task_pending_reason(task, f"No graph/lift route for {staff.id} to reach {task.pickup}")
+            return None
+        first_segments, t, duration = first_leg
+        segments.extend(first_segments)
+        total += duration
+
+        pickup_start = self._find_next_available_time(pickup.name, t, self.load_unload_time_sec)
+        if pickup_start > t:
+            segments.append({"type": "wait_for_location", "from": pickup.name, "to": pickup.name, "duration": pickup_start - t, "distance_m": 0.0})
+            total += pickup_start - t
+            t = pickup_start
+        if reserve:
+            self._reserve_location(pickup.name, t, t + self.load_unload_time_sec)
+        segments.append({"type": "pickup", "from": pickup.name, "to": pickup.name, "location": pickup.name, "duration": self.load_unload_time_sec, "distance_m": 0.0})
+        t += self.load_unload_time_sec
+        total += self.load_unload_time_sec
+
+        loaded_leg = move_between(pickup, dropoff, t, self._resolve_task_route_rules(task), payload)
+        if loaded_leg is None:
+            self._set_task_pending_reason(task, f"No graph/lift route from {task.pickup} to {task.dropoff} for staff delivery")
+            return None
+        loaded_segments, t, duration = loaded_leg
+        segments.extend(loaded_segments)
+        total += duration
+
+        dropoff_start = self._find_next_available_time(dropoff.name, t, self.load_unload_time_sec)
+        if dropoff_start > t:
+            segments.append({"type": "wait_for_location", "from": dropoff.name, "to": dropoff.name, "duration": dropoff_start - t, "distance_m": 0.0})
+            total += dropoff_start - t
+            t = dropoff_start
+        if reserve:
+            self._reserve_location(dropoff.name, t, t + self.load_unload_time_sec)
+            reserved_space = self._reserve_inventory_space_for_task(task, payload)
+            if self._location_has_payload_inventory_spaces(dropoff.name) and reserved_space is None:
+                self._set_task_pending_reason(task, self._inventory_pending_reason(dropoff.name, payload))
+                return None
+        segments.append({"type": "dropoff", "from": dropoff.name, "to": dropoff.name, "location": dropoff.name, "duration": self.load_unload_time_sec, "distance_m": 0.0})
+        t += self.load_unload_time_sec
+        total += self.load_unload_time_sec
+        if reserve:
+            self._record_committed_segment_impacts(segments)
+        return {
+            "task_start_time": task_start_time, "finish_time": t, "duration": total,
+            "segments": segments, "end_location": dropoff.name,
+            "energy_kwh": 0.0, "battery_soc_after": 0.0,
+            "lift_energy_kwh": 0.0, "lift_empty_sec_total": lift_empty_sec_total,
+            "lift_loaded_sec_total": lift_loaded_sec_total,
+            "payload_orientation": "lengthways",
+        }
+
     def _estimate_task_for_amr(self, amr: AMR, task: Task, reserve: bool = False):
         try:
             availability_time = max(self.current_time, float(getattr(amr, "available_time", 0.0) or 0.0), float(getattr(task, "release_time", 0.0) or 0.0))
@@ -8798,6 +8996,13 @@ class Simulation:
         return results
 
     def _task_allowed_for_amr(self, task: Task, amr: AMR) -> bool:
+        policy = self._delivery_resource_policy(task)
+        if policy["mode"] not in {"amr", "either"}:
+            return False
+        if policy["allowed_amr_types"]:
+            amr_type = str(getattr(amr, "id", "") or "").rsplit("-", 1)[0]
+            if amr_type not in policy["allowed_amr_types"]:
+                return False
         locked_amr_id = str(getattr(task, "locked_amr_id", "") or "").strip()
         if locked_amr_id and str(getattr(amr, "id", "") or "").strip() != locked_amr_id:
             return False
@@ -9196,6 +9401,12 @@ class Simulation:
         for _priority, _release, _counter, pending_task in list(self.pending_tasks):
             if self._pending_task_removed(pending_task):
                 continue
+            policy = self._delivery_resource_policy(pending_task)
+            if policy["mode"] in {"staff", "either"} and any(
+                self._staff_can_deliver_task(resource, pending_task)
+                for resource in self.staff_delivery_resources
+            ):
+                continue
             reason = self._released_task_terminal_failure_reason(pending_task)
             if reason:
                 self._fail_task(pending_task, reason, now=now)
@@ -9282,6 +9493,113 @@ class Simulation:
             )
         self._invalidate_route_estimate_cache()
 
+    def _log_staff_delivery_segments(self, staff, task, committed):
+        segment_start = committed["task_start_time"]
+        carrying_payload = False
+        for segment in committed["segments"]:
+            segment_type = str(segment.get("type", "") or "")
+            duration = float(segment.get("duration", 0.0) or 0.0)
+            from_name = str(segment.get("from", segment.get("location", "")) or "")
+            to_name = str(segment.get("to", segment.get("location", "")) or "")
+            start_loc = self.graph_nodes.get(from_name) or self.locations.get(from_name)
+            end_loc = self.graph_nodes.get(to_name) or self.locations.get(to_name)
+            has_payload = carrying_payload or segment_type in {"pickup", "dropoff"}
+            self.log_step(
+                event_time=segment_start,
+                event_type=f"staff_segment_{segment_type}",
+                task_id=task.id,
+                amr_id=staff.id,
+                details=json.dumps(segment, ensure_ascii=False),
+                from_location=from_name,
+                to_location=to_name,
+                payload_name=task.payload if has_payload else "",
+                payload_instance_id=getattr(task, "payload_instance_id", "") if has_payload else "",
+                lift_id=str(segment.get("lift_id", "") or ""),
+                duration_sec=duration,
+                wait_time_sec=duration if segment_type.startswith("wait_") else 0.0,
+                distance_m=float(segment.get("distance_m", 0.0) or 0.0),
+                segment_type=segment_type,
+                start_time=segment_start,
+                end_time=segment_start + duration,
+                start_node=from_name,
+                end_node=to_name,
+                start_x=getattr(start_loc, "x", None), start_y=getattr(start_loc, "y", None),
+                start_floor=getattr(start_loc, "floor", None),
+                end_x=getattr(end_loc, "x", None), end_y=getattr(end_loc, "y", None),
+                end_floor=getattr(end_loc, "floor", None),
+                status="completed",
+                person_resource=staff.resource_type,
+                person_id=staff.id,
+                people_required=1,
+            )
+            if segment_type == "pickup":
+                carrying_payload = True
+            elif segment_type == "dropoff":
+                carrying_payload = False
+            segment_start += duration
+
+    def _try_assign_staff_task(self) -> bool:
+        best = None
+        for task_order, (_priority, _release, _counter, task) in enumerate(self._live_pending_task_items()):
+            if task.release_time > self.current_time:
+                continue
+            if self._delivery_resource_policy(task)["mode"] not in {"staff", "either"}:
+                continue
+            for staff_order, staff in enumerate(self.staff_delivery_resources):
+                if staff.available_time > self.current_time or not self._staff_can_deliver_task(staff, task):
+                    continue
+                estimate = self._estimate_task_for_staff(staff, task, reserve=False)
+                if estimate is None:
+                    continue
+                candidate = (estimate["finish_time"], task_order, staff_order, staff, task)
+                if best is None or candidate[:3] < best[:3]:
+                    best = candidate
+        if best is None:
+            return False
+
+        _finish, _task_order, _staff_order, staff, task = best
+        committed = self._estimate_task_for_staff(staff, task, reserve=True)
+        if committed is None:
+            return False
+        self._remove_pending_task(task)
+        self._set_task_pending_reason(task, "")
+        previous_location = staff.location_name
+        staff.location_name = committed["end_location"]
+        staff.completed_tasks += 1
+        staff.total_busy_time += committed["duration"]
+        staff.available_time = committed["finish_time"] + staff.turnaround_time_sec
+        self.log_step(
+            event_time=committed["task_start_time"], event_type="staff_task_assigned",
+            task_id=task.id, amr_id=staff.id, details=f"Assigned task to {staff.id}",
+            from_location=task.pickup, to_location=task.dropoff,
+            payload_name=self._payload_log_name(task.payload),
+            task_duration_sec=committed["duration"],
+            amr_location_before=previous_location,
+            amr_location_after=committed["end_location"],
+            start_time=committed["task_start_time"], end_time=committed["task_start_time"] + 1.0,
+            status="start", person_resource=staff.resource_type, person_id=staff.id,
+            people_required=1,
+        )
+        self._log_staff_delivery_segments(staff, task, committed)
+        self.push_event(
+            committed["finish_time"], "task_complete",
+            {
+                "task": task, "amr_id": staff.id, "staff_id": staff.id,
+                "staff_resource_type": staff.resource_type,
+                "start_time": committed["task_start_time"],
+                "finish_time": committed["finish_time"], "duration": committed["duration"],
+                "target_time": task.target_time, "segments": committed["segments"],
+                "end_location": committed["end_location"], "energy_kwh": 0.0,
+                "battery_soc_after": 0.0, "lift_energy_kwh": 0.0,
+                "lift_empty_sec_total": committed["lift_empty_sec_total"],
+                "lift_loaded_sec_total": committed["lift_loaded_sec_total"],
+                "payload_orientation": "lengthways",
+            },
+        )
+        if staff.turnaround_time_sec > 0:
+            self.push_event(staff.available_time, "staff_turnaround_complete", {"staff_id": staff.id})
+        return True
+
     def _try_assign_tasks(self, now: float, force_idle_return: bool = False):
         self.current_time = max(self.current_time, now)
         self._assignment_continue_scheduled = False
@@ -9312,6 +9630,9 @@ class Simulation:
             if chunk_limit_reached():
                 self._schedule_assignment_continue(self.current_time)
                 return
+            if self._try_assign_staff_task():
+                processed_this_tick += 1
+                continue
             # First, send any idle AMRs that need recharge to charge immediately
             charge_scheduled = False
             for amr in self.amrs:
@@ -10150,6 +10471,23 @@ class Simulation:
         elif event.event_type == "assignment_continue":
             self._assignment_continue_scheduled = False
             self._try_assign_tasks(event.time)
+        elif event.event_type == "staff_turnaround_complete":
+            staff = self.staff_delivery_resources_by_id.get(event.payload.get("staff_id"))
+            if staff is not None:
+                self.log_step(
+                    event_time=event.time,
+                    event_type="staff_turnaround_complete",
+                    details=f"{staff.id} available for another delivery",
+                    from_location=staff.location_name,
+                    to_location=staff.location_name,
+                    start_time=event.time,
+                    end_time=event.time,
+                    status="available",
+                    person_resource=staff.resource_type,
+                    person_id=staff.id,
+                    people_required=1,
+                )
+            self._try_assign_tasks(event.time)
         elif event.event_type == "task_complete":
             task: Task = event.payload["task"]
             payload_obj = self._payload_for_task(task)
@@ -10322,6 +10660,9 @@ class Simulation:
                 amr_inventory_space=(
                     planned_space if getattr(task, "is_idle_return", False) else ""
                 ),
+                person_resource=str(event.payload.get("staff_resource_type", "") or ""),
+                person_id=str(event.payload.get("staff_id", "") or ""),
+                people_required=1 if event.payload.get("staff_id") else 0,
             )
 
             self.completed_task_records.append(
@@ -10338,6 +10679,9 @@ class Simulation:
                         else getattr(task, "payload_instance_id", "")
                     ),
                     "amr_id": event.payload["amr_id"],
+                    "staff_id": str(event.payload.get("staff_id", "") or ""),
+                    "staff_resource_type": str(event.payload.get("staff_resource_type", "") or ""),
+                    "delivery_resource_kind": "staff" if event.payload.get("staff_id") else "amr",
                     "start_datetime": self.clock.format_sim_time(
                         event.payload["start_time"]
                     ),

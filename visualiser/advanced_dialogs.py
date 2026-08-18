@@ -46,6 +46,28 @@ from PySide6.QtWidgets import (
 
 
 from ui_theme import polish_dialog as _polish_dialog
+from models import normalise_delivery_resource_policy
+
+
+DELIVERY_RESOURCE_OPTIONS = [
+    ("AMR only", "amr"),
+    ("Staff only", "staff"),
+    ("AMR or staff", "either"),
+]
+
+
+def _delivery_resource_combo(value=None):
+    combo = QComboBox()
+    for label, mode in DELIVERY_RESOURCE_OPTIONS:
+        combo.addItem(label, mode)
+    mode = normalise_delivery_resource_policy(value).get("mode", "amr")
+    index = combo.findData(mode)
+    combo.setCurrentIndex(max(0, index))
+    combo.setToolTip(
+        "Select which delivery resource class may transport this payload. "
+        "Existing configurations default to AMR only."
+    )
+    return combo
 
 
 def _date_time_input(value=None):
@@ -600,6 +622,9 @@ class TaskFormDialog(QDialog):
         self.route_profile_combo = QComboBox()
         self.route_profile_combo.addItems(self.profile_names)
         self.route_profile_combo.setCurrentText(self.seed.get("route_profile", ""))
+        self.delivery_resource_combo = _delivery_resource_combo(
+            self.seed.get("delivery_resource", self.seed.get("delivery_method", "amr"))
+        )
 
         form.addRow("ID", self.id_edit)
         form.addRow("Pickup", pickup_row)
@@ -610,6 +635,7 @@ class TaskFormDialog(QDialog):
         form.addRow("Priority", self.priority_edit)
         form.addRow("Labels (comma-separated)", self.labels_edit)
         form.addRow("Route profile", self.route_profile_combo)
+        form.addRow("Delivery resource", self.delivery_resource_combo)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
@@ -660,6 +686,9 @@ class TaskFormDialog(QDialog):
                 "priority": int(self.priority_edit.value()),
                 "labels": [x.strip() for x in self.labels_edit.text().split(",")],
                 "route_profile": self.route_profile_combo.currentText().strip(),
+                "delivery_resource": normalise_delivery_resource_policy(
+                    {"mode": self.delivery_resource_combo.currentData()}
+                ),
                 "manual_task": True,
                 "manual_single_payload_only": True,
             }
@@ -712,6 +741,7 @@ class BulkOneToManyTaskDialog(QDialog):
         self.labels_edit = QLineEdit("")
         self.route_combo = QComboBox()
         self.route_combo.addItems(self.profile_names)
+        self.delivery_resource_combo = _delivery_resource_combo("amr")
 
         form.addRow("Base task ID", self.id_edit)
         form.addRow("Pickup", self.pickup_combo)
@@ -722,6 +752,7 @@ class BulkOneToManyTaskDialog(QDialog):
         form.addRow("Priority", self.priority_edit)
         form.addRow("Labels (comma-separated)", self.labels_edit)
         form.addRow("Route profile", self.route_combo)
+        form.addRow("Delivery resource", self.delivery_resource_combo)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
@@ -773,6 +804,9 @@ class BulkOneToManyTaskDialog(QDialog):
                 "priority": int(self.priority_edit.value()),
                 "labels": labels,
                 "route_profile": self.route_combo.currentText().strip(),
+                "delivery_resource": normalise_delivery_resource_policy(
+                    {"mode": self.delivery_resource_combo.currentData()}
+                ),
                 "manual_task": True,
                 "manual_single_payload_only": True,
             }
@@ -1277,7 +1311,7 @@ class TaskPlannerDialog(QMainWindow):
         QMessageBox.critical(
             self,
             "Manual task unavailable",
-            "Manual task creation requires at least one AMR with exactly one payload slot. Multi-stop AMRs are reserved for simulator route batching.",
+            "Manual task creation requires a staff delivery type or an AMR with exactly one payload slot. Multi-stop AMRs are reserved for simulator route batching.",
         )
         return False
 
@@ -1607,6 +1641,17 @@ class EditMultipleTasksDialog(QDialog):
         route_profile_row.addWidget(self.route_profile_combo, 1)
         form.addRow("Route profile", route_profile_row)
 
+        self.delivery_resource_check = QCheckBox("Update delivery resource")
+        self.delivery_resource_combo = _delivery_resource_combo(
+            self.seed.get("delivery_resource", self.seed.get("delivery_method", "amr"))
+        )
+        self.delivery_resource_combo.setEnabled(False)
+        self.delivery_resource_check.toggled.connect(self.delivery_resource_combo.setEnabled)
+        delivery_resource_row = QHBoxLayout()
+        delivery_resource_row.addWidget(self.delivery_resource_check)
+        delivery_resource_row.addWidget(self.delivery_resource_combo, 1)
+        form.addRow("Delivery resource", delivery_resource_row)
+
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
@@ -1630,6 +1675,10 @@ class EditMultipleTasksDialog(QDialog):
                 updates["route_profile"] = (
                     self.route_profile_combo.currentText().strip()
                 )
+            if self.delivery_resource_check.isChecked():
+                updates["delivery_resource"] = normalise_delivery_resource_policy(
+                    {"mode": self.delivery_resource_combo.currentData()}
+                )
             if not updates:
                 raise ValueError("Select at least one field to update")
             self.result = updates
@@ -1649,6 +1698,7 @@ class TaskEditorWindow(QMainWindow):
         ("priority", "Priority", 80),
         ("labels", "Labels", 150),
         ("route_profile", "Route profile", 120),
+        ("delivery_resource", "Delivery resource", 125),
     ]
 
     def __init__(
@@ -1727,6 +1777,9 @@ class TaskEditorWindow(QMainWindow):
             item.get("priority", ""),
             ", ".join(item.get("labels", [])),
             item.get("route_profile", ""),
+            normalise_delivery_resource_policy(
+                item.get("delivery_resource", item.get("delivery_method", "amr"))
+            ).get("mode", "amr").title(),
         ]
         for col, value in enumerate(values):
             self.table.setItem(row, col, QTableWidgetItem(str(value)))
@@ -1763,7 +1816,7 @@ class TaskEditorWindow(QMainWindow):
         QMessageBox.critical(
             self,
             "Manual task unavailable",
-            "Manual task creation requires at least one AMR with exactly one payload slot. Multi-stop AMRs are reserved for simulator route batching.",
+            "Manual task creation requires a staff delivery type or an AMR with exactly one payload slot. Multi-stop AMRs are reserved for simulator route batching.",
         )
         return False
 
@@ -1947,6 +2000,7 @@ class TaskEditorWindow(QMainWindow):
                     "priority": payload["priority"],
                     "labels": list(payload["labels"]),
                     "route_profile": payload["route_profile"],
+                    "delivery_resource": deepcopy(payload["delivery_resource"]),
                     "manual_task": True,
                     "manual_single_payload_only": True,
                 }

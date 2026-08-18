@@ -551,7 +551,10 @@ class SimulationLog:
         last_task_id_by_amr: Dict[str, str],
     ) -> None:
         row = event.row
-        amr_id = (row.get("amr_id") or "").strip()
+        amr_id = (
+            (row.get("amr_id") or "").strip()
+            or (row.get("person_id") or "").strip()
+        )
         if not amr_id:
             recent_events.append(
                 {"timestamp": min(current_time, event.end_time), "row": row}
@@ -2518,7 +2521,7 @@ class SimulationVisualizer(QMainWindow):
         amr_size_note.setWordWrap(True)
         side_layout.addWidget(amr_size_note)
 
-        side_layout.addWidget(QLabel("Follow AMR"))
+        side_layout.addWidget(QLabel("Follow delivery resource"))
         self.follow_combo = QComboBox()
         self.follow_combo.currentTextChanged.connect(self.refresh_dynamic_scene)
         side_layout.addWidget(self.follow_combo)
@@ -5118,6 +5121,22 @@ class SimulationVisualizer(QMainWindow):
         length, width = self._amr_dimensions_for_name(amr_id)
         return max(0.05, float(length)), max(0.05, float(width))
 
+    def _state_is_staff_delivery(self, state: dict) -> bool:
+        raw = state.get("raw", {}) or {}
+        if bool(
+            str(raw.get("person_id", "") or "").strip()
+            and str(raw.get("person_resource", "") or "").strip()
+        ):
+            return True
+        resource_id = str(
+            state.get("amr_id", "") or raw.get("amr_id", "") or ""
+        ).strip()
+        for resource_type in self.layout_model.data.get("staff_delivery_resources", []) or []:
+            type_id = str(resource_type.get("id", "") or "").strip()
+            if type_id and (resource_id == type_id or resource_id.startswith(type_id + "-")):
+                return True
+        return False
+
     def _normalise_angle_deg(self, value: float) -> float:
         return (float(value) + 180.0) % 360.0 - 180.0
 
@@ -5213,6 +5232,73 @@ class SimulationVisualizer(QMainWindow):
         sx0, sy0 = self.world_to_scene(x, y)
         sx1, sy1 = self.world_to_scene(front_x, front_y)
         self.draw_line_item(sx0, sy0, sx1, sy1, "#858585", 0.0, dynamic=True)
+
+    def _draw_staff_delivery_marker_qt(self, state: dict, followed: bool = False):
+        """Draw a top-down porter with shoulders, centred head and forward feet."""
+        world_x = float(state["x"])
+        world_y = float(state["y"])
+        heading = self._amr_heading_radians_for_state(state)
+        cos_h = math.cos(heading)
+        sin_h = math.sin(heading)
+        marker_colour = "#ff9f1c" if followed else "#f4be21"
+
+        def scene_point(forward: float, lateral: float) -> QPointF:
+            rotated_x = (forward * cos_h) - (lateral * sin_h)
+            rotated_y = (forward * sin_h) + (lateral * cos_h)
+            scene_x, scene_y = self.world_to_scene(
+                world_x + rotated_x, world_y + rotated_y
+            )
+            return QPointF(scene_x, scene_y)
+
+        # Feet are drawn first so that their rear halves sit underneath the body,
+        # matching the reference's two dark forward-facing semicircles.
+        foot_radius = 0.105
+        for lateral in (-0.15, 0.15):
+            foot_centre = scene_point(0.27, lateral)
+            foot = QGraphicsEllipseItem(
+                foot_centre.x() - foot_radius,
+                foot_centre.y() - foot_radius,
+                foot_radius * 2.0,
+                foot_radius * 2.0,
+            )
+            foot.setBrush(QBrush(QColor(marker_colour)))
+            foot.setPen(QPen(QColor("#173342"), 0.04))
+            foot.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
+            self.graphics_scene.addItem(foot)
+            self._active_dynamic_items().append(foot)
+
+        # Broad capsule-like shoulders, transverse to the walking direction.
+        body_points = [
+            scene_point(-0.20, -0.20),
+            scene_point(-0.11, -0.34),
+            scene_point(0.10, -0.34),
+            scene_point(0.20, -0.24),
+            scene_point(0.20, 0.24),
+            scene_point(0.10, 0.34),
+            scene_point(-0.11, 0.34),
+            scene_point(-0.20, 0.20),
+        ]
+
+        body = QGraphicsPolygonItem(QPolygonF(body_points))
+        body.setBrush(QBrush(QColor(marker_colour)))
+        body.setPen(QPen(QColor("#173342"), 0.05))
+        body.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
+        self.graphics_scene.addItem(body)
+        self._active_dynamic_items().append(body)
+
+        head_centre = scene_point(-0.02, 0.0)
+        head_radius = 0.205
+        head = QGraphicsEllipseItem(
+            head_centre.x() - head_radius,
+            head_centre.y() - head_radius,
+            head_radius * 2.0,
+            head_radius * 2.0,
+        )
+        head.setBrush(QBrush(QColor("#e5e5e5")))
+        head.setPen(QPen(QColor("#173342"), 0.05))
+        head.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
+        self.graphics_scene.addItem(head)
+        self._active_dynamic_items().append(head)
 
     def build_lift_monitor_state(self) -> List[dict]:
         current_time = self.current_time
@@ -7060,8 +7146,11 @@ class SimulationVisualizer(QMainWindow):
                 continue
 
             x, y = self.world_to_scene(state["x"], state["y"])
+            is_staff_delivery = self._state_is_staff_delivery(state)
 
-            if self.show_amr_box_check.isChecked():
+            if is_staff_delivery:
+                self._draw_staff_delivery_marker_qt(state, followed=is_followed)
+            elif self.show_amr_box_check.isChecked():
                 self._draw_amr_box_colored_qt(
                     state, fill="#ff9f1c" if is_followed else "#4da3ff"
                 )
@@ -7083,12 +7172,20 @@ class SimulationVisualizer(QMainWindow):
             label_lines = [amr_id]
             if action:
                 label_lines.append(str(action))
-            if getattr(self, "show_amr_charge_state_check", None) is not None and self.show_amr_charge_state_check.isChecked():
+            if not is_staff_delivery and getattr(self, "show_amr_charge_state_check", None) is not None and self.show_amr_charge_state_check.isChecked():
                 charge_label = self._amr_charge_state_label(state)
                 if charge_label:
                     label_lines.append(charge_label)
-            length, width = self._amr_dimensions_for_state(state)
-            heading_deg = math.degrees(self._amr_heading_radians_for_state(state))
+            length, width = (1.2, 0.8) if is_staff_delivery else self._amr_dimensions_for_state(state)
+            # A porter is represented by a circular person marker, so rotating its
+            # label with the direction of travel only makes the text turn upside
+            # down on westbound legs. Keep staff labels screen-upright; AMR boxes
+            # continue to rotate with their physical heading.
+            heading_deg = (
+                0.0
+                if is_staff_delivery
+                else math.degrees(self._amr_heading_radians_for_state(state))
+            )
             self.draw_fitted_text_box_item(
                 x,
                 y,
@@ -7349,9 +7446,15 @@ class SimulationVisualizer(QMainWindow):
     def update_follow_amr_options(self):
         amr_ids = sorted(
             {
-                (event.row.get("amr_id") or "").strip()
+                (
+                    (event.row.get("amr_id") or "").strip()
+                    or (event.row.get("person_id") or "").strip()
+                )
                 for event in self.sim_log.events
-                if (event.row.get("amr_id") or "").strip()
+                if (
+                    (event.row.get("amr_id") or "").strip()
+                    or (event.row.get("person_id") or "").strip()
+                )
             }
         )
         self.follow_combo.blockSignals(True)
@@ -7623,7 +7726,7 @@ class SimulationVisualizer(QMainWindow):
         )
 
         return [
-            f"Follow AMR: {followed_amr}",
+            f"Follow resource: {followed_amr}",
             f"Task ID: {task_id}",
             f"Payload: {payload}",
             f"Start: {start_pos}",

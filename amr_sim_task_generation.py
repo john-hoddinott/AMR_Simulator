@@ -1275,6 +1275,7 @@ class DynamicCategoryTaskGenerator(BaseTaskGenerator):
                 cfg.get("staff_movement_policy", "batch_same_location")
             )
             or "batch_same_location",
+            delivery_resource=dict(cfg.get("delivery_resource", {"mode": "amr"}) or {"mode": "amr"}),
             staff_shift_pattern=_clean_text(cfg.get("staff_shift_pattern", "none"))
             or "none",
             staff_handling_minutes=max(
@@ -1404,6 +1405,7 @@ class DynamicCategoryTaskGenerator(BaseTaskGenerator):
             container_type=return_payload,
             payload_instance_id=str(getattr(outbound, "payload_instance_id", "") or ""),
             is_return_task=True,
+            delivery_resource=dict(getattr(outbound, "delivery_resource", {"mode": "amr"}) or {"mode": "amr"}),
         )
         return task
 

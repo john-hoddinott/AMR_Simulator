@@ -1,0 +1,121 @@
+{
+  "simulation": {
+    "start_datetime": "2026-01-05T08:00:00",
+    "end_datetime": "2026-01-05T08:30:00",
+    "tick_rate": 1000
+  },
+  "building": {
+    "load_unload_time_sec": 20.0,
+    "floor_height_m": 4.0,
+    "charge_location": "AMR-BASE"
+  },
+  "locations": [
+    { "name": "PICKUP", "floor": 0, "x": -21, "y": 11 },
+    {
+      "name": "AMR-BASE",
+      "floor": 0,
+      "x": 166,
+      "y": 15,
+      "inventory_spaces": [
+        {
+          "name": "AMR-BASIC charger 1",
+          "space_type": "amr",
+          "stores_amr": true,
+          "has_charger": true,
+          "points": [
+            { "dx": -0.5, "dy": -0.5 },
+            { "dx": 0.5, "dy": -0.5 },
+            { "dx": 0.5, "dy": 0.5 },
+            { "dx": -0.5, "dy": 0.5 }
+          ],
+          "payload_slots": [
+            {
+              "slot_type": "amr",
+              "amr_type": "AMR-BASIC",
+              "dx": 0.0,
+              "dy": 0.0,
+              "rotation_deg": 0.0
+            }
+          ]
+        }
+      ]
+    },
+    { "name": "DELIVERY", "floor": 0, "x": -20, "y": -67 }
+  ],
+  "corridors": {
+    "nodes": [
+      { "name": "N1", "floor": 0, "x": 42, "y": -68 },
+      { "name": "N2", "floor": 0, "x": 41, "y": -24 },
+      { "name": "N3", "floor": 0, "x": 40, "y": 13 },
+      { "name": "N4", "floor": 0, "x": 112, "y": 16 }
+    ],
+    "edges": [
+      { "from": "DELIVERY", "to": "N1" },
+      { "from": "N1", "to": "DELIVERY" },
+      { "from": "N1", "to": "N2" },
+      { "from": "N2", "to": "N1" },
+      { "from": "N2", "to": "N3" },
+      { "from": "N3", "to": "N2" },
+      { "from": "PICKUP", "to": "N3" },
+      { "from": "N3", "to": "PICKUP" },
+      { "from": "N3", "to": "N4" },
+      { "from": "N4", "to": "N3" },
+      { "from": "N4", "to": "AMR-BASE" },
+      { "from": "AMR-BASE", "to": "N4" }
+    ],
+    "auto_connect": false
+  },
+  "payloads": [
+    {
+      "name": "test_parcel",
+      "weight_kg": 10,
+      "length_m": 0.5,
+      "width_m": 0.4,
+      "height_m": 0.3,
+      "size_units": 1,
+      "allowed_carry_orientations": ["lengthways", "sideways"]
+    }
+  ],
+  "amrs": [
+    {
+      "id": "AMR-BASIC",
+      "quantity": 1,
+      "payload_capacity_kg": 100,
+      "payload_length_capacity_m": 1.0,
+      "payload_width_capacity_m": 1.0,
+      "payload_height_capacity_m": 1.0,
+      "payload_size_capacity": 1,
+      "length_m": 0.8,
+      "width_m": 0.6,
+      "height_m": 1.2,
+      "speed_m_per_sec": 1.2,
+      "motor_power_w": 800,
+      "battery_capacity_kwh": 10,
+      "battery_charge_rate_kw": 3,
+      "recharge_threshold_percent": 20,
+      "battery_soc_percent": 100,
+      "start_location": "AMR-BASE"
+    }
+  ],
+  "lifts": [],
+  "tasks": [
+    {
+      "id": "AMR-REGRESSION-1",
+      "pickup": "PICKUP",
+      "dropoff": "DELIVERY",
+      "payload": "test_parcel",
+      "release_datetime": "2026-01-05T08:00:00",
+      "target_time": 900,
+      "priority": 10,
+      "labels": ["baseline_regression"],
+      "route_profile": "default"
+    }
+  ],
+  "route_profiles": {
+    "default": {
+      "allowed_lifts": [],
+      "allowed_nodes": [],
+      "allowed_edges": []
+    }
+  }
+}

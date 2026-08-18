@@ -110,6 +110,39 @@ class Task:
     staff_shift_rest_days: int = 0
     payload_orientation: str = "lengthways"
     wash_cycle_required: bool = False
+    delivery_resource: Dict[str, Any] = field(default_factory=lambda: {"mode": "amr"})
+
+
+@dataclass
+class StaffDeliveryResource:
+    id: str
+    resource_type: str
+    base_location: str
+    location_name: str
+    speed_m_per_sec: float = 1.2
+    payload_capacity_kg: float = 25.0
+    payload_length_capacity_m: float = 1.0
+    payload_width_capacity_m: float = 0.8
+    payload_height_capacity_m: float = 1.5
+    turnaround_time_sec: float = 0.0
+    allowed_payload_types: List[str] = field(default_factory=list)
+    capabilities: List[str] = field(default_factory=list)
+    available_time: float = 0.0
+    completed_tasks: int = 0
+    total_busy_time: float = 0.0
+    length_m: float = 0.6
+    width_m: float = 0.6
+    height_m: float = 1.8
+
+    def can_carry(self, payload: PayloadType) -> bool:
+        if self.allowed_payload_types and payload.name not in self.allowed_payload_types:
+            return False
+        return (
+            payload.weight_kg <= self.payload_capacity_kg
+            and payload.length_m <= self.payload_length_capacity_m
+            and payload.width_m <= self.payload_width_capacity_m
+            and payload.height_m <= self.payload_height_capacity_m
+        )
 
 
 @dataclass

@@ -1,0 +1,132 @@
+{
+  "simulation": {
+    "start_datetime": "2026-01-05T08:00:00",
+    "end_datetime": "2026-01-05T08:30:00",
+    "tick_rate": 1000
+  },
+  "building": {
+    "load_unload_time_sec": 20.0,
+    "floor_height_m": 4.0,
+    "charge_location": "AMR-BASE"
+  },
+  "locations": [
+    { "name": "PICKUP", "floor": 0, "x": -21, "y": 11 },
+    {
+      "name": "AMR-BASE",
+      "floor": 0,
+      "x": 166,
+      "y": 15,
+      "inventory_spaces": [
+        {
+          "name": "AMR-BASIC charger 1",
+          "space_type": "amr",
+          "stores_amr": true,
+          "has_charger": true,
+          "points": [
+            { "dx": -0.5, "dy": -0.5 },
+            { "dx": 0.5, "dy": -0.5 },
+            { "dx": 0.5, "dy": 0.5 },
+            { "dx": -0.5, "dy": 0.5 }
+          ],
+          "payload_slots": [
+            {
+              "slot_type": "amr",
+              "amr_type": "AMR-BASIC",
+              "dx": 0.0,
+              "dy": 0.0,
+              "rotation_deg": 0.0
+            }
+          ]
+        }
+      ]
+    },
+    { "name": "PORTER-BASE", "floor": 0, "x": 40, "y": 13 },
+    { "name": "DELIVERY", "floor": 1, "x": -20, "y": -67 }
+  ],
+  "corridors": {
+    "nodes": [
+      { "name": "N1", "floor": 0, "x": 42, "y": -68 },
+      { "name": "N2", "floor": 0, "x": 41, "y": -24 },
+      { "name": "N3", "floor": 0, "x": 40, "y": 13 },
+      { "name": "N4", "floor": 0, "x": 112, "y": 16 }
+    ],
+    "edges": [
+      { "from": "N1", "to": "PORTER-LIFT-F0" }, { "from": "PORTER-LIFT-F0", "to": "N1" },
+      { "from": "PORTER-LIFT-F1", "to": "DELIVERY" }, { "from": "DELIVERY", "to": "PORTER-LIFT-F1" },
+      { "from": "N1", "to": "N2" }, { "from": "N2", "to": "N1" },
+      { "from": "N2", "to": "N3" }, { "from": "N3", "to": "N2" },
+      { "from": "PICKUP", "to": "N3" }, { "from": "N3", "to": "PICKUP" },
+      { "from": "PORTER-BASE", "to": "N3" }, { "from": "N3", "to": "PORTER-BASE" },
+      { "from": "N3", "to": "N4" }, { "from": "N4", "to": "N3" },
+      { "from": "N4", "to": "AMR-BASE" }, { "from": "AMR-BASE", "to": "N4" }
+    ],
+    "auto_connect": false
+  },
+  "payloads": [
+    {
+      "name": "test_parcel", "weight_kg": 10, "length_m": 0.5,
+      "width_m": 0.4, "height_m": 0.3, "size_units": 1,
+      "allowed_carry_orientations": ["lengthways", "sideways"]
+    }
+  ],
+  "amrs": [
+    {
+      "id": "AMR-BASIC", "quantity": 1, "payload_capacity_kg": 100,
+      "payload_length_capacity_m": 1.0, "payload_width_capacity_m": 1.0,
+      "payload_height_capacity_m": 1.0, "payload_size_capacity": 1,
+      "length_m": 0.8, "width_m": 0.6, "height_m": 1.2,
+      "speed_m_per_sec": 1.2, "motor_power_w": 800,
+      "battery_capacity_kwh": 10, "battery_charge_rate_kw": 3,
+      "recharge_threshold_percent": 20, "battery_soc_percent": 100,
+      "start_location": "AMR-BASE"
+    }
+  ],
+  "staff_delivery_resources": [
+    {
+      "id": "PORTER-DAY", "quantity": 2, "base_location": "PORTER-BASE",
+      "speed_m_per_sec": 1.1, "payload_capacity_kg": 25,
+      "payload_length_capacity_m": 1.0, "payload_width_capacity_m": 0.8,
+      "payload_height_capacity_m": 1.5, "turnaround_time_sec": 180,
+      "shift_start_time": "07:00", "shift_end_time": "15:00",
+      "days_active": ["mon", "tue", "wed", "thu", "fri"],
+      "breaks": [
+        { "name": "Meal break", "start_time": "11:30", "end_time": "12:00" }
+      ],
+      "capabilities": ["general_delivery"]
+    }
+  ],
+  "lifts": [
+    {
+      "id": "PORTER-LIFT", "served_floors": [0, 1],
+      "speed_floors_per_sec": 0.5, "door_time_sec": 4,
+      "boarding_time_sec": 6, "capacity_length_m": 2.0,
+      "capacity_width_m": 1.5, "capacity_height_m": 2.2,
+      "start_floor": 0,
+      "floor_locations": {
+        "0": { "x": -20, "y": -67 },
+        "1": { "x": -20, "y": -67 }
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "id": "EDITOR-STAFF-EXAMPLE", "pickup": "PICKUP", "dropoff": "DELIVERY",
+      "payload": "test_parcel", "release_datetime": "2026-01-05T08:00:00",
+      "target_time": 900, "priority": 10, "route_profile": "default",
+      "delivery_resource": { "mode": "staff" }
+    }
+  ],
+  "task_generation": {
+    "categories": {
+      "stores": {
+        "enabled": false, "display_name": "Stores", "mode": "scheduled",
+        "pickup_location": "PICKUP", "dropoff_location": "DELIVERY",
+        "dropoff_locations": ["DELIVERY"], "payload": "test_parcel",
+        "delivery_resource": { "mode": "either" }
+      }
+    }
+  },
+  "route_profiles": {
+    "default": { "allowed_lifts": [], "allowed_nodes": [], "allowed_edges": [] }
+  }
+}

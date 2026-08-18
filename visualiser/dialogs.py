@@ -4,6 +4,10 @@ import math
 from typing import Any, List, Optional
 
 from advanced_dialogs import MultiSelectPicker
+from models import (
+    normalise_delivery_resource_policy,
+    normalise_staff_delivery_resource,
+)
 
 from PySide6.QtCore import Qt, QPointF, QRectF, QTime, QDateTime
 from PySide6.QtGui import QColor, QBrush, QPen, QPolygonF, QPainter, QPainterPath, QDoubleValidator, QIntValidator
@@ -64,6 +68,25 @@ STAFF_SHIFT_PATTERNS = [
     ("Global fixed working hours", "none"),
     ("Global 4 on / 4 off, 12-hour days", "four_on_four_off_12h"),
 ]
+
+DELIVERY_RESOURCE_OPTIONS = [
+    ("AMR only", "amr"),
+    ("Staff only", "staff"),
+    ("AMR or staff", "either"),
+]
+
+
+def _make_delivery_resource_combo(value=None) -> QComboBox:
+    combo = QComboBox()
+    for label, mode in DELIVERY_RESOURCE_OPTIONS:
+        combo.addItem(label, mode)
+    mode = normalise_delivery_resource_policy(value).get("mode", "amr")
+    combo.setCurrentIndex(max(0, combo.findData(mode)))
+    combo.setToolTip(
+        "Choose which resource class may transport this logistics flow. "
+        "This does not replace optional endpoint handling staff."
+    )
+    return combo
 
 
 def _normalise_staff_movement_policy_value(value) -> str:
@@ -1001,7 +1024,13 @@ class BulkDepartmentTaskGenerationDialog(QDialog):
 
         self.payload_combo = QComboBox()
         self.payload_combo.addItems([""] + self.payload_names)
+
         self.payload_combo.setCurrentText(str(self.base_category.get("payload", "")))
+        self.delivery_resource_combo = _make_delivery_resource_combo(
+            self.base_category.get(
+                "delivery_resource", self.base_category.get("delivery_method", "amr")
+            )
+        )
 
         self.tracked_item_exchange_check = QCheckBox(
             "Generate tracked item exchange tasks"
@@ -1199,6 +1228,7 @@ class BulkDepartmentTaskGenerationDialog(QDialog):
         form.addRow("Pickup / source locations", pickup_row)
         form.addRow("Drop-off destinations", dropoff_row)
         form.addRow("Payload", self.payload_combo)
+        form.addRow("Delivery resource", self.delivery_resource_combo)
         form.addRow("Tracked item exchange", self.tracked_item_exchange_check)
         form.addRow("Exchange mode", self.exchange_mode_combo)
         form.addRow("Route profile", self.route_profile_combo)
@@ -1728,6 +1758,9 @@ class BulkDepartmentTaskGenerationDialog(QDialog):
                 "dropoff_location": dropoff_locations[0] if dropoff_locations else "",
                 "dropoff_locations": dropoff_locations,
                 "payload": self.payload_combo.currentText().strip(),
+                "delivery_resource": normalise_delivery_resource_policy(
+                    {"mode": self.delivery_resource_combo.currentData()}
+                ),
                 "tracked_item_exchange": self.tracked_item_exchange_check.isChecked(),
                 "exchange_mode": self.exchange_mode_combo.currentText().strip(),
                 "return_enabled": self.return_enabled_check.isChecked(),
@@ -2044,6 +2077,7 @@ class TaskGenerationSettingsDialog(QDialog):
 
         self.payload_combo = QComboBox()
         self.payload_combo.addItems([""] + self.payload_names)
+        self.delivery_resource_combo = _make_delivery_resource_combo("amr")
 
         self.tracked_item_exchange_check = QCheckBox(
             "Generate tracked item exchange tasks"
@@ -2185,6 +2219,7 @@ class TaskGenerationSettingsDialog(QDialog):
         form.addRow("Pickup / source location", self.pickup_combo)
         form.addRow("Drop-off destinations", dropoff_row)
         form.addRow("Payload", self.payload_combo)
+        form.addRow("Delivery resource", self.delivery_resource_combo)
         form.addRow("Tracked item exchange", self.tracked_item_exchange_check)
         form.addRow("Exchange mode", self.exchange_mode_combo)
         form.addRow("Route profile", self.route_profile_combo)
@@ -2384,6 +2419,9 @@ class TaskGenerationSettingsDialog(QDialog):
         if self.payload_combo.currentText().strip():
             return True
 
+        if self.delivery_resource_combo.currentData() != "amr":
+            return True
+
         if self.return_enabled_check.isChecked():
             return True
 
@@ -2465,6 +2503,7 @@ class TaskGenerationSettingsDialog(QDialog):
             "dropoff_location": "",
             "dropoff_locations": [],
             "payload": "",
+            "delivery_resource": normalise_delivery_resource_policy("amr"),
             "tracked_item_exchange": False,
             "exchange_mode": "top_up_only",
             "return_enabled": False,
@@ -3636,6 +3675,9 @@ class TaskGenerationSettingsDialog(QDialog):
         self.selected_dropoffs = []
         self._refresh_dropoff_summary()
         self.payload_combo.setCurrentText("")
+        self.delivery_resource_combo.setCurrentIndex(
+            max(0, self.delivery_resource_combo.findData("amr"))
+        )
         self.route_profile_combo.setCurrentText("")
         self.return_enabled_check.setChecked(False)
         self.return_payload_combo.setCurrentText("")
@@ -3715,6 +3757,15 @@ class TaskGenerationSettingsDialog(QDialog):
         self.pickup_combo.setCurrentText(str(item.get("pickup_location", "")))
         self._refresh_dropoff_summary()
         self.payload_combo.setCurrentText(str(item.get("payload", "")))
+        delivery_policy = item.get(
+            "delivery_resource", item.get("delivery_method", "amr")
+        )
+        delivery_mode = normalise_delivery_resource_policy(delivery_policy).get(
+            "mode", "amr"
+        )
+        self.delivery_resource_combo.setCurrentIndex(
+            max(0, self.delivery_resource_combo.findData(delivery_mode))
+        )
         self.tracked_item_exchange_check.setChecked(
             bool(item.get("tracked_item_exchange", False))
         )
@@ -3989,6 +4040,9 @@ class TaskGenerationSettingsDialog(QDialog):
             "dropoff_location": dropoff_locations[0] if dropoff_locations else "",
             "dropoff_locations": dropoff_locations,
             "payload": self.payload_combo.currentText().strip(),
+            "delivery_resource": normalise_delivery_resource_policy(
+                {"mode": self.delivery_resource_combo.currentData()}
+            ),
             "tracked_item_exchange": self.tracked_item_exchange_check.isChecked(),
             "exchange_mode": self.exchange_mode_combo.currentText().strip(),
             "return_enabled": self.return_enabled_check.isChecked(),
@@ -5372,6 +5426,141 @@ class AMREditorDialog(QDialog):
             QMessageBox.warning(self, "Check AMR details", str(exc))
 
 
+class StaffDeliveryResourceEditorDialog(QDialog):
+    def __init__(self, parent, location_names, seed=None, default_id="PORTER-1"):
+        super().__init__(parent)
+        self.seed = normalise_staff_delivery_resource(seed or {"id": default_id})
+        self.result = None
+        self.setWindowTitle("Edit staff delivery type" if seed else "Add staff delivery type")
+        self.resize(720, 650)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(_dialog_intro(
+            "Define staff who transport payloads through the building. This is separate from "
+            "staff-assisted handling at pickup or delivery locations."
+        ))
+        form = QFormLayout()
+        layout.addLayout(form)
+
+        self.id_edit = QLineEdit(self.seed.get("id", default_id))
+        self.quantity_edit = _integer_input(
+            self.seed.get("quantity", 1), minimum=1, maximum=100_000, suffix=" person(s)"
+        )
+        self.base_combo = QComboBox()
+        self.base_combo.addItems([""] + sorted(location_names))
+        self.base_combo.setCurrentText(self.seed.get("base_location", ""))
+        self.speed_edit = _double_input(
+            self.seed.get("speed_m_per_sec", 1.2), minimum=0.01, maximum=10.0,
+            decimals=3, suffix=" m/s", step=0.05,
+        )
+        self.weight_edit = _double_input(
+            self.seed.get("payload_capacity_kg", 25.0), minimum=0.01, maximum=10_000.0,
+            decimals=2, suffix=" kg", step=1.0,
+        )
+        self.length_edit = _double_input(
+            self.seed.get("payload_length_capacity_m", 1.0), minimum=0.01, maximum=20.0,
+            decimals=3, suffix=" m", step=0.05,
+        )
+        self.width_edit = _double_input(
+            self.seed.get("payload_width_capacity_m", 0.8), minimum=0.01, maximum=20.0,
+            decimals=3, suffix=" m", step=0.05,
+        )
+        self.height_edit = _double_input(
+            self.seed.get("payload_height_capacity_m", 1.5), minimum=0.01, maximum=20.0,
+            decimals=3, suffix=" m", step=0.05,
+        )
+        self.turnaround_edit = _double_input(
+            self.seed.get("turnaround_time_sec", 300.0), minimum=0.0, maximum=86_400.0,
+            decimals=0, suffix=" s", step=30.0,
+        )
+
+        self.shift_start_edit = QTimeEdit()
+        self.shift_start_edit.setDisplayFormat("HH:mm")
+        self.shift_start_edit.setTime(
+            QTime.fromString(self.seed.get("shift_start_time", "07:00"), "HH:mm")
+        )
+        self.shift_end_edit = QTimeEdit()
+        self.shift_end_edit.setDisplayFormat("HH:mm")
+        self.shift_end_edit.setTime(
+            QTime.fromString(self.seed.get("shift_end_time", "15:00"), "HH:mm")
+        )
+        self.days_selector = DayOfWeekSelector(selected=self.seed.get("days_active", []))
+        self.breaks_edit = QPlainTextEdit()
+        self.breaks_edit.setPlaceholderText("Meal break, 12:00, 12:30")
+        self.breaks_edit.setPlainText("\n".join(
+            f"{item.get('name', 'Break')}, {item.get('start_time', '')}, {item.get('end_time', '')}"
+            for item in self.seed.get("breaks", [])
+        ))
+        self.breaks_edit.setMaximumHeight(90)
+        self.capabilities_edit = QLineEdit(", ".join(self.seed.get("capabilities", [])))
+        self.capabilities_edit.setPlaceholderText("case_cart, secure_load")
+
+        form.addRow("Staff type name", self.id_edit)
+        form.addRow("Quantity", self.quantity_edit)
+        form.addRow("Base location", self.base_combo)
+        form.addRow("Walking speed", self.speed_edit)
+        form.addRow("Maximum payload weight", self.weight_edit)
+        form.addRow("Payload length allowance", self.length_edit)
+        form.addRow("Payload width allowance", self.width_edit)
+        form.addRow("Payload height allowance", self.height_edit)
+        form.addRow("Turnaround after delivery", self.turnaround_edit)
+        form.addRow("Shift starts", self.shift_start_edit)
+        form.addRow("Shift ends", self.shift_end_edit)
+        form.addRow("Working days", self.days_selector)
+        form.addRow("Breaks (name, start, end)", self.breaks_edit)
+        form.addRow("Capabilities", self.capabilities_edit)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        _polish_dialog(self)
+
+    def _breaks(self):
+        result = []
+        for line_number, line in enumerate(self.breaks_edit.toPlainText().splitlines(), start=1):
+            if not line.strip():
+                continue
+            parts = [part.strip() for part in line.split(",")]
+            if len(parts) != 3:
+                raise ValueError(f"Break line {line_number} must contain name, start and end.")
+            name, start, end = parts
+            if not QTime.fromString(start, "HH:mm").isValid() or not QTime.fromString(end, "HH:mm").isValid():
+                raise ValueError(f"Break line {line_number} must use HH:mm times.")
+            result.append({"name": name or "Break", "start_time": start, "end_time": end})
+        return result
+
+    def accept(self):
+        try:
+            resource_id = self.id_edit.text().strip()
+            if not resource_id:
+                raise ValueError("Enter a staff delivery type name.")
+            if not self.base_combo.currentText().strip():
+                raise ValueError("Select a base location.")
+            days = self.days_selector.selected_days()
+            if not days:
+                raise ValueError("Select at least one working day.")
+            self.result = normalise_staff_delivery_resource({
+                "id": resource_id,
+                "quantity": int(self.quantity_edit.value()),
+                "base_location": self.base_combo.currentText().strip(),
+                "speed_m_per_sec": float(self.speed_edit.value()),
+                "payload_capacity_kg": float(self.weight_edit.value()),
+                "payload_length_capacity_m": float(self.length_edit.value()),
+                "payload_width_capacity_m": float(self.width_edit.value()),
+                "payload_height_capacity_m": float(self.height_edit.value()),
+                "turnaround_time_sec": float(self.turnaround_edit.value()),
+                "shift_start_time": self.shift_start_edit.time().toString("HH:mm"),
+                "shift_end_time": self.shift_end_edit.time().toString("HH:mm"),
+                "days_active": days,
+                "breaks": self._breaks(),
+                "capabilities": [x.strip() for x in self.capabilities_edit.text().split(",") if x.strip()],
+            })
+            super().accept()
+        except Exception as exc:
+            QMessageBox.warning(self, "Check staff delivery resource", str(exc))
+
+
 class PayloadTrackedItemDialog(QDialog):
     MODES = [
         ("Scheduled demand", "scheduled"),
@@ -5975,6 +6164,173 @@ class PayloadListDialog(QDialog):
 
     def save_items(self):
         self.on_save(self.items)
+        self.accept()
+
+
+class DeliveryResourcesDialog(QDialog):
+    columns = [
+        ("kind", "Resource", 90),
+        ("id", "Type", 150),
+        ("quantity", "Qty", 65),
+        ("base", "Base", 150),
+        ("speed", "Speed", 85),
+        ("capacity", "Payload capacity", 180),
+        ("availability", "Availability", 230),
+    ]
+
+    def __init__(self, parent, amrs, staff_resources, location_names, on_save):
+        super().__init__(parent)
+        self.setWindowTitle("Delivery Resources")
+        self.resize(1120, 540)
+        self.location_names = list(location_names)
+        self.on_save = on_save
+        self.items = []
+        for item in amrs:
+            payload = dict(item)
+            payload["_resource_kind"] = "amr"
+            self.items.append(payload)
+        for item in staff_resources:
+            payload = normalise_staff_delivery_resource(item)
+            payload["_resource_kind"] = "staff"
+            self.items.append(payload)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(_dialog_intro(
+            "AMRs and staff delivery types are configured together. Staff delivery resources "
+            "transport payloads; endpoint handling staff remain in Task Generation settings."
+        ))
+        self.table = QTableWidget(0, len(self.columns))
+        self.table.setHorizontalHeaderLabels([heading for _key, heading, _width in self.columns])
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.cellDoubleClicked.connect(lambda _row, _col: self.edit_item())
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        for idx, (_key, _heading, width) in enumerate(self.columns):
+            self.table.setColumnWidth(idx, width)
+        layout.addWidget(self.table, 1)
+
+        buttons = QHBoxLayout()
+        layout.addLayout(buttons)
+        for text, handler in [
+            ("Add AMR type", self.add_amr),
+            ("Add staff type", self.add_staff),
+            ("Edit selected", self.edit_item),
+            ("Delete selected", self.delete_item),
+        ]:
+            button = QPushButton(text)
+            button.clicked.connect(handler)
+            buttons.addWidget(button)
+        buttons.addStretch(1)
+        save_btn = QPushButton("Save")
+        save_btn.clicked.connect(self.save_items)
+        buttons.addWidget(save_btn)
+        self._refresh_table()
+        _polish_dialog(self)
+
+    def _suggest_id(self, prefix):
+        existing = {str(item.get("id", "")).strip() for item in self.items}
+        index = 1
+        while f"{prefix}-{index}" in existing:
+            index += 1
+        return f"{prefix}-{index}"
+
+    def _refresh_table(self):
+        self.table.setRowCount(0)
+        for item in self.items:
+            kind = item.get("_resource_kind", "amr")
+            if kind == "staff":
+                values = [
+                    "Staff",
+                    item.get("id", ""),
+                    item.get("quantity", ""),
+                    item.get("base_location", ""),
+                    f"{float(item.get('speed_m_per_sec', 0.0) or 0.0):g} m/s",
+                    f"{float(item.get('payload_capacity_kg', 0.0) or 0.0):g} kg",
+                    f"{item.get('shift_start_time', '')}–{item.get('shift_end_time', '')}; "
+                    f"{len(item.get('days_active', []))} day(s)",
+                ]
+            else:
+                values = [
+                    "AMR",
+                    item.get("id", ""),
+                    item.get("quantity", ""),
+                    "Charging locations",
+                    f"{float(item.get('speed_m_per_sec', 0.0) or 0.0):g} m/s",
+                    _amr_payload_slot_summary(item),
+                    "Battery and charger availability",
+                ]
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            for col, value in enumerate(values):
+                self.table.setItem(row, col, QTableWidgetItem(str(value)))
+
+    def _duplicate_id(self, resource_id, skip_row=None):
+        return any(
+            row != skip_row and str(item.get("id", "")).strip() == resource_id
+            for row, item in enumerate(self.items)
+        )
+
+    def add_amr(self):
+        dialog = AMREditorDialog(
+            self, self.location_names, default_amr_id=self._suggest_id("AMR")
+        )
+        if dialog.exec() == QDialog.Accepted and dialog.result:
+            if self._duplicate_id(dialog.result["id"]):
+                QMessageBox.critical(self, "Duplicate", "Delivery resource type already exists")
+                return
+            result = dict(dialog.result)
+            result["_resource_kind"] = "amr"
+            self.items.append(result)
+            self._refresh_table()
+
+    def add_staff(self):
+        dialog = StaffDeliveryResourceEditorDialog(
+            self, self.location_names, default_id=self._suggest_id("PORTER")
+        )
+        if dialog.exec() == QDialog.Accepted and dialog.result:
+            if self._duplicate_id(dialog.result["id"]):
+                QMessageBox.critical(self, "Duplicate", "Delivery resource type already exists")
+                return
+            result = dict(dialog.result)
+            result["_resource_kind"] = "staff"
+            self.items.append(result)
+            self._refresh_table()
+
+    def edit_item(self):
+        row = self.table.currentRow()
+        if row < 0:
+            return
+        item = self.items[row]
+        if item.get("_resource_kind") == "staff":
+            dialog = StaffDeliveryResourceEditorDialog(self, self.location_names, seed=item)
+        else:
+            dialog = AMREditorDialog(self, self.location_names, seed=item)
+        if dialog.exec() == QDialog.Accepted and dialog.result:
+            if self._duplicate_id(dialog.result["id"], skip_row=row):
+                QMessageBox.critical(self, "Duplicate", "Delivery resource type already exists")
+                return
+            result = dict(dialog.result)
+            result["_resource_kind"] = item.get("_resource_kind", "amr")
+            self.items[row] = result
+            self._refresh_table()
+            self.table.selectRow(row)
+
+    def delete_item(self):
+        row = self.table.currentRow()
+        if row >= 0:
+            del self.items[row]
+            self._refresh_table()
+
+    def save_items(self):
+        amrs, staff = [], []
+        for item in self.items:
+            payload = {key: value for key, value in item.items() if key != "_resource_kind"}
+            if item.get("_resource_kind") == "staff":
+                staff.append(normalise_staff_delivery_resource(payload, len(staff) + 1))
+            else:
+                amrs.append(payload)
+        self.on_save(amrs, staff)
         self.accept()
 
 

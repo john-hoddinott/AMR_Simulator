@@ -67,7 +67,7 @@ from dialogs import (
     WasteStreamListDialog,
     MassCollectionListDialog,
     DepartmentListDialog,
-    AMRListDialog,
+    DeliveryResourcesDialog,
     AMREditorDialog,
     InventorySpacesDialog,
     TaskGenerationSettingsDialog,
@@ -560,9 +560,9 @@ class AMRGraphEditor(QMainWindow):
         assets = create_page("Assets")
         add_group(
             assets,
-            "AMR system",
+            "Delivery system",
             [
-                button("AMRs", self.manage_amrs),
+                button("Delivery Resources", self.manage_delivery_resources),
                 button("Payloads", self.manage_payloads),
                 button("Charging locations", self.manage_charging_locations),
                 button("Lifts", self.manage_lifts),
@@ -2829,22 +2829,29 @@ class AMRGraphEditor(QMainWindow):
             result["start_floor"],
         )
 
-    def manage_amrs(self):
+    def manage_delivery_resources(self):
         location_names = sorted(x["name"] for x in self.store.data.get("locations", []))
 
-        dialog = AMRListDialog(
+        dialog = DeliveryResourcesDialog(
             self,
             self.store.data.get("amrs", []),
+            self.store.data.get("staff_delivery_resources", []),
             location_names,
-            self._save_amrs,
+            self._save_delivery_resources,
         )
         dialog.exec()
 
-    def _save_amrs(self, items):
-        self.store.data["amrs"] = items
+    def manage_amrs(self):
+        self.manage_delivery_resources()
+
+    def _save_delivery_resources(self, amrs, staff_resources):
+        self.store.data["amrs"] = amrs
+        self.store.data["staff_delivery_resources"] = staff_resources
         if hasattr(self.store, "ensure_amr_defaults"):
             self.store.ensure_amr_defaults()
-        self.set_status("AMRs updated")
+        if hasattr(self.store, "ensure_delivery_resource_defaults"):
+            self.store.ensure_delivery_resource_defaults()
+        self.set_status("Delivery resources updated")
 
     def build_floor_map(self, store):
         floor_map = {}
@@ -2862,9 +2869,12 @@ class AMRGraphEditor(QMainWindow):
         return floor_map
 
     def _manual_task_amr_available(self):
-        if not hasattr(self.store, "has_manual_task_compatible_amr"):
-            return True
-        return self.store.has_manual_task_compatible_amr()
+        has_amr = (
+            self.store.has_manual_task_compatible_amr()
+            if hasattr(self.store, "has_manual_task_compatible_amr")
+            else True
+        )
+        return bool(has_amr or self.store.data.get("staff_delivery_resources", []))
 
     def manage_tasks(self):
         locations = self.store.data.get("locations", [])

@@ -120,6 +120,66 @@ def amr_supports_manual_tasks(amr: dict) -> bool:
     return len(normalise_amr_payload_slots(amr)) == 1
 
 
+DELIVERY_RESOURCE_MODES = {"amr", "staff", "either"}
+
+
+def default_delivery_resource_policy() -> dict:
+    return {"mode": "amr"}
+
+
+def normalise_delivery_resource_policy(value) -> dict:
+    if isinstance(value, str):
+        source = {"mode": value}
+    elif isinstance(value, dict):
+        source = dict(value)
+    else:
+        source = {}
+    mode = str(source.get("mode", source.get("delivery_method", "amr")) or "amr").strip().lower()
+    if mode not in DELIVERY_RESOURCE_MODES:
+        mode = "amr"
+    result = {"mode": mode}
+    for key in ("allowed_amr_types", "allowed_staff_types", "required_capabilities"):
+        values = source.get(key, [])
+        if isinstance(values, str):
+            values = [item.strip() for item in values.split(",")]
+        result[key] = list(dict.fromkeys(str(item).strip() for item in (values or []) if str(item).strip()))
+    return result
+
+
+def normalise_staff_delivery_resource(value: Optional[dict], index: int = 1) -> dict:
+    source = dict(value or {})
+    days = source.get("days_active", ["mon", "tue", "wed", "thu", "fri"])
+    if isinstance(days, str):
+        days = [item.strip().lower() for item in days.split(",")]
+    capabilities = source.get("capabilities", [])
+    if isinstance(capabilities, str):
+        capabilities = [item.strip() for item in capabilities.split(",")]
+    breaks = []
+    for raw in source.get("breaks", []) or []:
+        if isinstance(raw, dict):
+            breaks.append({
+                "name": str(raw.get("name", "Break") or "Break").strip(),
+                "start_time": str(raw.get("start_time", "") or "").strip(),
+                "end_time": str(raw.get("end_time", "") or "").strip(),
+            })
+    return {
+        "id": str(source.get("id", f"PORTER-{index}") or f"PORTER-{index}").strip(),
+        "quantity": max(1, int(float(source.get("quantity", 1) or 1))),
+        "base_location": str(source.get("base_location", "") or "").strip(),
+        "speed_m_per_sec": max(0.01, float(source.get("speed_m_per_sec", 1.2) or 1.2)),
+        "payload_capacity_kg": max(0.0, float(source.get("payload_capacity_kg", 25.0) or 0.0)),
+        "payload_length_capacity_m": max(0.0, float(source.get("payload_length_capacity_m", 1.0) or 0.0)),
+        "payload_width_capacity_m": max(0.0, float(source.get("payload_width_capacity_m", 0.8) or 0.0)),
+        "payload_height_capacity_m": max(0.0, float(source.get("payload_height_capacity_m", 1.5) or 0.0)),
+        "turnaround_time_sec": max(0.0, float(source.get("turnaround_time_sec", 300.0) or 0.0)),
+        "shift_start_time": str(source.get("shift_start_time", "07:00") or "07:00").strip(),
+        "shift_end_time": str(source.get("shift_end_time", "15:00") or "15:00").strip(),
+        "days_active": list(dict.fromkeys(str(item).strip().lower() for item in (days or []) if str(item).strip())),
+        "breaks": breaks,
+        "capabilities": list(dict.fromkeys(str(item).strip() for item in (capabilities or []) if str(item).strip())),
+    }
+
+
 def default_task_generation_category(label: str) -> dict:
     return {
         "enabled": False,
@@ -157,6 +217,7 @@ def default_task_generation_category(label: str) -> dict:
         "timeframe_end": "17:00",
         "timeframe_payload_multiple": 1,
         "payload_multiple": 1,
+        "delivery_resource": default_delivery_resource_policy(),
         "notes": "",
     }
 
@@ -385,6 +446,9 @@ def merge_task_generation_defaults(value: Optional[dict]) -> dict:
     for category in merged["categories"].values():
         if not isinstance(category, dict):
             continue
+        category["delivery_resource"] = normalise_delivery_resource_policy(
+            category.get("delivery_resource", category.get("delivery_method", "amr"))
+        )
         dropoff_locations = category.get("dropoff_locations")
         if isinstance(dropoff_locations, list):
             clean = [str(x).strip() for x in dropoff_locations if str(x).strip()]
@@ -497,6 +561,7 @@ DEFAULT_JSON = {
     "mass_collections": [],
     "departments": [],
     "amrs": [],
+    "staff_delivery_resources": [],
     "lifts": [],
     "people_movements": [],
     "scenario_testing": {
@@ -525,6 +590,7 @@ class JsonStore:
         self.ensure_task_generation_defaults()
         self.ensure_payload_defaults()
         self.ensure_amr_defaults()
+        self.ensure_delivery_resource_defaults()
         self.ensure_department_defaults()
         self.ensure_mass_collection_defaults()
         self.ensure_location_defaults()
@@ -887,6 +953,18 @@ class JsonStore:
                 amr.get("multi_stop_enabled", len(slots) > 1) and len(slots) > 1
             )
 
+    def ensure_delivery_resource_defaults(self) -> None:
+        clean_staff = []
+        for index, item in enumerate(self.data.setdefault("staff_delivery_resources", []), start=1):
+            if isinstance(item, dict):
+                clean_staff.append(normalise_staff_delivery_resource(item, index))
+        self.data["staff_delivery_resources"] = clean_staff
+        for task in self.data.setdefault("tasks", []):
+            if isinstance(task, dict):
+                task["delivery_resource"] = normalise_delivery_resource_policy(
+                    task.get("delivery_resource", task.get("delivery_method", "amr"))
+                )
+
     def has_manual_task_compatible_amr(self) -> bool:
         self.ensure_amr_defaults()
         return any(amr_supports_manual_tasks(amr) for amr in self.data.get("amrs", []))
@@ -920,6 +998,8 @@ class JsonStore:
     def save(self, path: str) -> None:
         self.ensure_simulation_defaults()
         self.ensure_amr_defaults()
+        self.ensure_delivery_resource_defaults()
+        self.ensure_task_generation_defaults()
         self.ensure_department_defaults()
         self.ensure_mass_collection_defaults()
         with open(path, "w", encoding="utf-8") as f:
@@ -2064,6 +2144,16 @@ class JsonStore:
         lift_names = {x["id"] for x in self.data.get("lifts", [])}
 
         for task in self.data.get("tasks", []):
+            raw_policy = task.get("delivery_resource", task.get("delivery_method", "amr"))
+            raw_mode = (
+                str(raw_policy.get("mode", "amr") or "amr").strip().lower()
+                if isinstance(raw_policy, dict)
+                else str(raw_policy or "amr").strip().lower()
+            )
+            if raw_mode not in DELIVERY_RESOURCE_MODES:
+                errors.append(
+                    f"Task {task.get('id')} has invalid delivery resource mode: {raw_mode}"
+                )
             if (
                 task.get("pickup") not in location_names
                 and task.get("pickup") not in names
@@ -2201,6 +2291,41 @@ class JsonStore:
                     errors.append(
                         f"AMR {amr.get('id')} {slot_name} has invalid payload slot dimensions"
                     )
+
+        seen_staff_ids = set()
+        for staff in self.data.get("staff_delivery_resources", []) or []:
+            staff_id = str(staff.get("id", "") or "").strip()
+            if not staff_id:
+                errors.append("Staff delivery resource has no type name")
+            elif staff_id in seen_staff_ids:
+                errors.append(f"Duplicate staff delivery resource type: {staff_id}")
+            seen_staff_ids.add(staff_id)
+            base_location = str(staff.get("base_location", "") or "").strip()
+            if not base_location:
+                errors.append(
+                    f"Staff delivery resource {staff_id or '-'} has no base location"
+                )
+            elif base_location not in location_names:
+                errors.append(
+                    f"Staff delivery resource {staff_id or '-'} has unknown base location: {base_location}"
+                )
+            try:
+                if int(staff.get("quantity", 0) or 0) <= 0:
+                    errors.append(
+                        f"Staff delivery resource {staff_id or '-'} quantity must be greater than 0"
+                    )
+                if float(staff.get("speed_m_per_sec", 0.0) or 0.0) <= 0.0:
+                    errors.append(
+                        f"Staff delivery resource {staff_id or '-'} speed must be greater than 0"
+                    )
+                if float(staff.get("payload_capacity_kg", 0.0) or 0.0) <= 0.0:
+                    errors.append(
+                        f"Staff delivery resource {staff_id or '-'} payload capacity must be greater than 0"
+                    )
+            except Exception:
+                errors.append(
+                    f"Staff delivery resource {staff_id or '-'} has invalid numeric values"
+                )
 
         seen_floors = set()
         for entry in self.data.get("floor_dxf_files", []):
