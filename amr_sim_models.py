@@ -127,6 +127,12 @@ class StaffDeliveryResource:
     turnaround_time_sec: float = 0.0
     allowed_payload_types: List[str] = field(default_factory=list)
     capabilities: List[str] = field(default_factory=list)
+    shift_start_time: str = "07:00"
+    shift_end_time: str = "15:00"
+    days_active: List[str] = field(
+        default_factory=lambda: ["mon", "tue", "wed", "thu", "fri"]
+    )
+    breaks: List[Dict[str, str]] = field(default_factory=list)
     available_time: float = 0.0
     completed_tasks: int = 0
     total_busy_time: float = 0.0

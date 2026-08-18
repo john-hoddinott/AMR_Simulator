@@ -94,3 +94,21 @@ New-Item -ItemType Directory -Force examples\delivery_resources\outputs\02_staff
 Expected result: `EDITOR-STAFF-EXAMPLE` is assigned to `PORTER-DAY-1`, walks
 from `PORTER-BASE` to `PICKUP`, handles the payload, walks to `DELIVERY`, handles
 the drop-off, and becomes available after its configured turnaround time.
+
+## 03 — Staff availability
+
+`03_staff_availability.json` is a fast roster regression with two individual
+porters, a 07:00–07:15 shift, a 07:05–07:10 contractual break and 30 seconds of
+turnaround. It checks pre-shift waiting, two simultaneous assignments, busy
+waiting, break deferral and a task deferred to the next active day because it
+cannot finish before shift end.
+
+```powershell
+New-Item -ItemType Directory -Force examples\delivery_resources\outputs\03_staff_availability
+.\.venv\Scripts\python.exe simulator.py `
+  --config examples\delivery_resources\03_staff_availability.json `
+  --verbose `
+  --verbose-csv examples\delivery_resources\outputs\03_staff_availability\simulation_steps.csv `
+  --visualiser-csv examples\delivery_resources\outputs\03_staff_availability\visualiser_steps.csv `
+  --failed-tasks-csv examples\delivery_resources\outputs\03_staff_availability\failed_tasks.csv
+```

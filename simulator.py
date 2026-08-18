@@ -711,11 +711,28 @@ class Simulation:
                             for value in resource_type.get("capabilities", []) or []
                             if str(value).strip()
                         ],
+                        shift_start_time=str(resource_type.get("shift_start_time", "07:00") or "07:00").strip(),
+                        shift_end_time=str(resource_type.get("shift_end_time", "15:00") or "15:00").strip(),
+                        days_active=[
+                            str(value).strip().lower()
+                            for value in resource_type.get("days_active", ["mon", "tue", "wed", "thu", "fri"]) or []
+                            if str(value).strip()
+                        ],
+                        breaks=[
+                            {
+                                "name": str(value.get("name", "Break") or "Break").strip(),
+                                "start_time": str(value.get("start_time", "") or "").strip(),
+                                "end_time": str(value.get("end_time", "") or "").strip(),
+                            }
+                            for value in resource_type.get("breaks", []) or []
+                            if isinstance(value, dict)
+                        ],
                     )
                 )
         self.staff_delivery_resources_by_id = {
             resource.id: resource for resource in self.staff_delivery_resources
         }
+        self._staff_availability_checks = set()
 
         # Parse tasks from configuration
 
@@ -8021,6 +8038,8 @@ class Simulation:
 
         for amr in self.amrs:
             next_times.append(amr.available_time)
+        for staff in self.staff_delivery_resources:
+            next_times.append(staff.available_time)
 
         if self.events:
             next_event_time = self.events[0].time
@@ -8032,6 +8051,21 @@ class Simulation:
             return
 
         wait_until = min(future_times)
+        pending_reasons = []
+        for _priority, _release, _counter, task in self.pending_tasks:
+            if self._pending_task_removed(task):
+                continue
+            reason = str(getattr(task, "pending_reason", "") or "").strip()
+            if reason and reason not in pending_reasons:
+                pending_reasons.append(reason)
+        if pending_reasons:
+            wait_reason = "; ".join(pending_reasons[:3])
+        elif self.staff_delivery_resources and not self.amrs:
+            wait_reason = "No staff delivery resource currently available"
+        elif self.staff_delivery_resources:
+            wait_reason = "No delivery resource currently available"
+        else:
+            wait_reason = "No AMRs currently available"
 
         self.push_event(
             wait_until,
@@ -8044,7 +8078,7 @@ class Simulation:
                     for _, _, _, task in self.pending_tasks
                     if not self._pending_task_removed(task)
                 ],
-                "reason": "No AMRs currently available",
+                "reason": wait_reason,
             },
         )
 
@@ -8187,8 +8221,105 @@ class Simulation:
         payload = self._payload_for_task(task)
         return bool(payload is not None and staff.can_carry(payload))
 
+    @staticmethod
+    def _hhmm_seconds(value: str, default: int) -> int:
+        try:
+            hours, minutes = str(value or "").strip().split(":", 1)
+            result = (int(hours) * 3600) + (int(minutes) * 60)
+            return result if 0 <= result < 86400 else default
+        except Exception:
+            return default
+
+    def _next_staff_rostered_time(
+        self,
+        staff: StaffDeliveryResource,
+        earliest_time: float,
+        required_duration: float,
+    ) -> Optional[float]:
+        """Find the next shift interval that can contain the complete delivery.
+
+        A delivery is not split across a contractual break or shift boundary. If
+        it cannot finish before the next exclusion, it starts after that break or
+        on the next active day.
+        """
+        day_names = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+        active_days = {
+            str(value).strip().lower()[:3]
+            for value in staff.days_active
+            if str(value).strip()
+        }
+        if not active_days:
+            return None
+        shift_start_sec = self._hhmm_seconds(staff.shift_start_time, 7 * 3600)
+        shift_end_sec = self._hhmm_seconds(staff.shift_end_time, 15 * 3600)
+        if shift_end_sec <= shift_start_sec:
+            shift_end_sec += 86400
+        required_duration = max(0.0, float(required_duration or 0.0))
+        start_datetime = self.clock.start_datetime
+        earliest_datetime = start_datetime + timedelta(seconds=max(0.0, earliest_time))
+        first_date = earliest_datetime.date()
+
+        for day_offset in range(15):
+            day_date = first_date + timedelta(days=day_offset)
+            if day_names[day_date.weekday()] not in active_days:
+                continue
+            midnight = start_datetime.replace(
+                year=day_date.year, month=day_date.month, day=day_date.day,
+                hour=0, minute=0, second=0, microsecond=0,
+            )
+            shift_start = midnight + timedelta(seconds=shift_start_sec)
+            shift_end = midnight + timedelta(seconds=shift_end_sec)
+            candidate = max(earliest_datetime, shift_start)
+            if candidate >= shift_end:
+                continue
+
+            exclusions = []
+            for item in staff.breaks:
+                break_start_sec = self._hhmm_seconds(item.get("start_time", ""), -1)
+                break_end_sec = self._hhmm_seconds(item.get("end_time", ""), -1)
+                if break_start_sec < 0 or break_end_sec < 0:
+                    continue
+                if break_end_sec <= break_start_sec:
+                    break_end_sec += 86400
+                break_start = midnight + timedelta(seconds=break_start_sec)
+                break_end = midnight + timedelta(seconds=break_end_sec)
+                if break_end > shift_start and break_start < shift_end:
+                    exclusions.append((max(break_start, shift_start), min(break_end, shift_end)))
+            exclusions.sort(key=lambda value: value[0])
+
+            for break_start, break_end in exclusions:
+                if candidate >= break_end:
+                    continue
+                if candidate + timedelta(seconds=required_duration) <= break_start:
+                    break
+                candidate = max(candidate, break_end)
+            if candidate + timedelta(seconds=required_duration) <= shift_end:
+                return max(0.0, (candidate - start_datetime).total_seconds())
+        return None
+
+    def _staff_availability_reason(
+        self, staff: StaffDeliveryResource, earliest_time: float, next_time: Optional[float]
+    ) -> str:
+        if next_time is None:
+            return f"{staff.id} has no roster window long enough for this delivery"
+        now_dt = self.clock.start_datetime + timedelta(seconds=max(0.0, earliest_time))
+        now_seconds = (now_dt.hour * 3600) + (now_dt.minute * 60) + now_dt.second
+        for item in staff.breaks:
+            start = self._hhmm_seconds(item.get("start_time", ""), -1)
+            end = self._hhmm_seconds(item.get("end_time", ""), -1)
+            if start >= 0 and end >= 0 and start <= now_seconds < end:
+                return f"{staff.id} is on contractual break until {item.get('end_time', '')}"
+        shift_start = self._hhmm_seconds(staff.shift_start_time, 7 * 3600)
+        shift_end = self._hhmm_seconds(staff.shift_end_time, 15 * 3600)
+        if now_seconds < shift_start:
+            return f"{staff.id} is waiting for shift start at {staff.shift_start_time}"
+        if now_seconds >= shift_end:
+            return f"{staff.id} is off shift; next rostered availability is {self.clock.format_sim_time(next_time)}"
+        return f"{staff.id} cannot finish before the next break or shift end"
+
     def _estimate_task_for_staff(
-        self, staff: StaffDeliveryResource, task: Task, reserve: bool = False
+        self, staff: StaffDeliveryResource, task: Task, reserve: bool = False,
+        start_time_override: Optional[float] = None,
     ) -> Optional[dict]:
         if task.pickup not in self.locations or task.dropoff not in self.locations:
             return None
@@ -8202,7 +8333,10 @@ class Simulation:
         start = self.locations[staff.location_name]
         pickup = self.locations[task.pickup]
         dropoff = self.locations[task.dropoff]
-        t = max(self.current_time, staff.available_time, task.release_time)
+        t = max(
+            self.current_time, staff.available_time, task.release_time,
+            float(start_time_override or 0.0),
+        )
         task_start_time = t
         segments = []
         total = 0.0
@@ -9402,7 +9536,46 @@ class Simulation:
             if self._pending_task_removed(pending_task):
                 continue
             policy = self._delivery_resource_policy(pending_task)
-            if policy["mode"] in {"staff", "either"} and any(
+            if policy["mode"] == "staff":
+                compatible_staff = [
+                    resource
+                    for resource in self.staff_delivery_resources
+                    if self._staff_can_deliver_task(resource, pending_task)
+                ]
+                if not compatible_staff:
+                    self._fail_task(
+                        pending_task,
+                        "No compatible staff delivery resource is configured",
+                        now=now,
+                    )
+                    return True
+                future_window_exists = False
+                for resource in compatible_staff:
+                    earliest = max(
+                        self.current_time,
+                        resource.available_time,
+                        pending_task.release_time,
+                    )
+                    estimate = self._estimate_task_for_staff(
+                        resource,
+                        pending_task,
+                        reserve=False,
+                        start_time_override=earliest,
+                    )
+                    if estimate is not None and self._next_staff_rostered_time(
+                        resource, earliest, estimate["duration"]
+                    ) is not None:
+                        future_window_exists = True
+                        break
+                if future_window_exists:
+                    continue
+                self._fail_task(
+                    pending_task,
+                    "No compatible staff roster window is long enough for this delivery",
+                    now=now,
+                )
+                return True
+            if policy["mode"] == "either" and any(
                 self._staff_can_deliver_task(resource, pending_task)
                 for resource in self.staff_delivery_resources
             ):
@@ -9540,25 +9713,75 @@ class Simulation:
 
     def _try_assign_staff_task(self) -> bool:
         best = None
+        next_check_time = None
+        task_waits = {}
         for task_order, (_priority, _release, _counter, task) in enumerate(self._live_pending_task_items()):
             if task.release_time > self.current_time:
                 continue
             if self._delivery_resource_policy(task)["mode"] not in {"staff", "either"}:
                 continue
             for staff_order, staff in enumerate(self.staff_delivery_resources):
-                if staff.available_time > self.current_time or not self._staff_can_deliver_task(staff, task):
+                if not self._staff_can_deliver_task(staff, task):
                     continue
-                estimate = self._estimate_task_for_staff(staff, task, reserve=False)
+                earliest = max(self.current_time, staff.available_time, task.release_time)
+                estimate = self._estimate_task_for_staff(
+                    staff, task, reserve=False, start_time_override=earliest
+                )
                 if estimate is None:
                     continue
-                candidate = (estimate["finish_time"], task_order, staff_order, staff, task)
+                rostered_time = self._next_staff_rostered_time(
+                    staff, earliest, estimate["duration"]
+                )
+                if rostered_time is None:
+                    task_waits.setdefault(task.id, []).append(
+                        self._staff_availability_reason(staff, earliest, None)
+                    )
+                    continue
+                if rostered_time > self.current_time + 1e-9:
+                    next_check_time = (
+                        rostered_time
+                        if next_check_time is None
+                        else min(next_check_time, rostered_time)
+                    )
+                    if staff.available_time > self.current_time:
+                        reason = (
+                            f"{staff.id} is busy or in turnaround until "
+                            f"{self.clock.format_sim_time(staff.available_time)}"
+                        )
+                    else:
+                        reason = self._staff_availability_reason(
+                            staff, earliest, rostered_time
+                        )
+                    task_waits.setdefault(task.id, []).append(reason)
+                    continue
+                estimate = self._estimate_task_for_staff(
+                    staff, task, reserve=False, start_time_override=rostered_time
+                )
+                if estimate is None:
+                    continue
+                candidate = (estimate["finish_time"], task_order, staff_order, staff, task, rostered_time)
                 if best is None or candidate[:3] < best[:3]:
                     best = candidate
+        for _priority, _release, _counter, task in self._live_pending_task_items():
+            reasons = task_waits.get(task.id, [])
+            if reasons:
+                self._set_task_pending_reason(task, min(reasons, key=len))
+        if next_check_time is not None:
+            check_key = round(float(next_check_time), 6)
+            if check_key not in self._staff_availability_checks:
+                self._staff_availability_checks.add(check_key)
+                self.push_event(
+                    next_check_time,
+                    "staff_availability_check",
+                    {"check_time": check_key},
+                )
         if best is None:
             return False
 
-        _finish, _task_order, _staff_order, staff, task = best
-        committed = self._estimate_task_for_staff(staff, task, reserve=True)
+        _finish, _task_order, _staff_order, staff, task, rostered_time = best
+        committed = self._estimate_task_for_staff(
+            staff, task, reserve=True, start_time_override=rostered_time
+        )
         if committed is None:
             return False
         self._remove_pending_task(task)
@@ -10487,6 +10710,11 @@ class Simulation:
                     person_id=staff.id,
                     people_required=1,
                 )
+            self._try_assign_tasks(event.time)
+        elif event.event_type == "staff_availability_check":
+            self._staff_availability_checks.discard(
+                round(float(event.payload.get("check_time", event.time)), 6)
+            )
             self._try_assign_tasks(event.time)
         elif event.event_type == "task_complete":
             task: Task = event.payload["task"]
@@ -12379,6 +12607,24 @@ class Simulation:
                 }
                 for amr in self.amrs
             ],
+            "staff_delivery_resources": [
+                {
+                    "staff_id": staff.id,
+                    "staff_type": staff.resource_type,
+                    "completed_tasks": staff.completed_tasks,
+                    "current_location": staff.location_name,
+                    "available_datetime": self.clock.format_sim_time(staff.available_time),
+                    "total_busy_time_hms": format_duration(staff.total_busy_time),
+                    "utilisation_percent_of_makespan": round(
+                        (100.0 * staff.total_busy_time / makespan) if makespan > 0 else 0.0,
+                        2,
+                    ),
+                    "shift": f"{staff.shift_start_time}-{staff.shift_end_time}",
+                    "days_active": list(staff.days_active),
+                    "breaks": list(staff.breaks),
+                }
+                for staff in self.staff_delivery_resources
+            ],
         }
 
     def short_summary(self) -> dict:
@@ -12413,6 +12659,10 @@ class Simulation:
             .get("categories", {})
             .get("stores", {})
             .get("people_required", 0),
+            "staff_delivery_people": len(self.staff_delivery_resources),
+            "staff_delivery_completed_tasks": sum(
+                staff.completed_tasks for staff in self.staff_delivery_resources
+            ),
         }
 
     def print_summary(self):

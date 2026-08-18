@@ -1,0 +1,90 @@
+{
+  "simulation": {
+    "start_datetime": "2026-01-05T06:55:00",
+    "end_datetime": "2026-01-06T07:10:00",
+    "tick_rate": 1000
+  },
+  "building": {
+    "load_unload_time_sec": 10.0,
+    "floor_height_m": 4.0,
+    "charge_location": "PORTER-BASE",
+    "enable_idle_return": false
+  },
+  "locations": [
+    { "name": "PORTER-BASE", "floor": 0, "x": 0, "y": 0 },
+    { "name": "PICKUP", "floor": 0, "x": 5, "y": 0 },
+    { "name": "DELIVERY", "floor": 0, "x": 10, "y": 0 }
+  ],
+  "corridors": {
+    "nodes": [],
+    "edges": [
+      { "from": "PORTER-BASE", "to": "PICKUP" },
+      { "from": "PICKUP", "to": "PORTER-BASE" },
+      { "from": "PICKUP", "to": "DELIVERY" },
+      { "from": "DELIVERY", "to": "PICKUP" }
+    ],
+    "auto_connect": false
+  },
+  "payloads": [
+    {
+      "name": "test_parcel", "weight_kg": 5,
+      "length_m": 0.4, "width_m": 0.3, "height_m": 0.2,
+      "size_units": 1,
+      "allowed_carry_orientations": ["lengthways", "sideways"]
+    }
+  ],
+  "amrs": [],
+  "staff_delivery_resources": [
+    {
+      "id": "PORTER-ROSTER", "quantity": 2,
+      "base_location": "PORTER-BASE", "speed_m_per_sec": 1.0,
+      "payload_capacity_kg": 25,
+      "payload_length_capacity_m": 1.0,
+      "payload_width_capacity_m": 0.8,
+      "payload_height_capacity_m": 1.5,
+      "turnaround_time_sec": 30,
+      "shift_start_time": "07:00", "shift_end_time": "07:15",
+      "days_active": ["mon", "tue"],
+      "breaks": [
+        { "name": "Contractual break", "start_time": "07:05", "end_time": "07:10" }
+      ],
+      "capabilities": ["general_delivery"]
+    }
+  ],
+  "lifts": [],
+  "tasks": [
+    {
+      "id": "BEFORE-SHIFT", "pickup": "PICKUP", "dropoff": "DELIVERY",
+      "payload": "test_parcel", "release_datetime": "2026-01-05T06:55:00",
+      "priority": 10, "delivery_resource": { "mode": "staff" }
+    },
+    {
+      "id": "CONCURRENT-A", "pickup": "PICKUP", "dropoff": "DELIVERY",
+      "payload": "test_parcel", "release_datetime": "2026-01-05T07:01:00",
+      "priority": 20, "delivery_resource": { "mode": "staff" }
+    },
+    {
+      "id": "CONCURRENT-B", "pickup": "PICKUP", "dropoff": "DELIVERY",
+      "payload": "test_parcel", "release_datetime": "2026-01-05T07:01:00",
+      "priority": 20, "delivery_resource": { "mode": "staff" }
+    },
+    {
+      "id": "BUSY-WAIT", "pickup": "PICKUP", "dropoff": "DELIVERY",
+      "payload": "test_parcel", "release_datetime": "2026-01-05T07:01:00",
+      "priority": 30, "delivery_resource": { "mode": "staff" }
+    },
+    {
+      "id": "DURING-BREAK", "pickup": "PICKUP", "dropoff": "DELIVERY",
+      "payload": "test_parcel", "release_datetime": "2026-01-05T07:06:00",
+      "priority": 40, "delivery_resource": { "mode": "staff" }
+    },
+    {
+      "id": "SHIFT-END", "pickup": "PICKUP", "dropoff": "DELIVERY",
+      "payload": "test_parcel", "release_datetime": "2026-01-05T07:14:50",
+      "priority": 50, "delivery_resource": { "mode": "staff" }
+    }
+  ],
+  "route_profiles": {
+    "default": { "allowed_lifts": [], "allowed_nodes": [], "allowed_edges": [] }
+  }
+}
