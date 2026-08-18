@@ -2,6 +2,7 @@
 AMR Simulator app
 """
 
+import argparse
 import json
 import math
 import sys
@@ -18,6 +19,7 @@ from PySide6.QtCore import (
     Signal,
     QRect,
     QThread,
+    QTimer,
     Slot,
     QRectF,
 )
@@ -3114,9 +3116,22 @@ class AMRGraphEditor(QMainWindow):
             return_window.activateWindow()
 
 
-def main():
+def _parse_editor_args(argv: list[str]):
+    parser = argparse.ArgumentParser(description="AMR graph editor")
+    parser.add_argument(
+        "--config",
+        help="Open the selected AMR simulator JSON config after startup.",
+    )
+    args, _unknown = parser.parse_known_args(argv)
+    return args
+
+
+def main(argv: list[str] | None = None):
+    args = _parse_editor_args(sys.argv[1:] if argv is None else argv)
     app = QApplication.instance() or QApplication(sys.argv)
     install_application_theme(app)
     window = AMRGraphEditor()
     window.show()
+    if args.config:
+        QTimer.singleShot(0, lambda: window.load_json_file(args.config))
     return app.exec()
