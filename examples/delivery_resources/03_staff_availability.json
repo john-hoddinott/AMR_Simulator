@@ -1,5 +1,6 @@
 {
   "simulation": {
+    "delivery_operating_model": "porter_only",
     "start_datetime": "2026-01-05T06:55:00",
     "end_datetime": "2026-01-06T07:10:00",
     "tick_rate": 1000
@@ -43,6 +44,9 @@
       "payload_width_capacity_m": 0.8,
       "payload_height_capacity_m": 1.5,
       "turnaround_time_sec": 30,
+      "response_delay_min_sec": 60,
+      "response_delay_max_sec": 120,
+      "response_delay_away_from_base_only": true,
       "shift_start_time": "07:00", "shift_end_time": "07:15",
       "days_active": ["mon", "tue"],
       "breaks": [

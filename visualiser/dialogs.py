@@ -3,7 +3,13 @@ import json
 import math
 from typing import Any, List, Optional
 
-from advanced_dialogs import MultiSelectPicker
+from advanced_dialogs import (
+    MultiSelectPicker,
+    _delivery_selection_combo,
+    _preference_schedule_edit,
+    _bind_delivery_preference_controls,
+    _delivery_policy_from_controls,
+)
 from models import (
     normalise_delivery_resource_policy,
     normalise_staff_delivery_resource,
@@ -1031,6 +1037,17 @@ class BulkDepartmentTaskGenerationDialog(QDialog):
                 "delivery_resource", self.base_category.get("delivery_method", "amr")
             )
         )
+        self.delivery_selection_combo = _delivery_selection_combo(
+            self.base_category.get("delivery_resource", "amr")
+        )
+        self.preference_schedule_edit = _preference_schedule_edit(
+            self.base_category.get("delivery_resource", "amr")
+        )
+        _bind_delivery_preference_controls(
+            self.delivery_resource_combo,
+            self.delivery_selection_combo,
+            self.preference_schedule_edit,
+        )
 
         self.tracked_item_exchange_check = QCheckBox(
             "Generate tracked item exchange tasks"
@@ -1229,6 +1246,8 @@ class BulkDepartmentTaskGenerationDialog(QDialog):
         form.addRow("Drop-off destinations", dropoff_row)
         form.addRow("Payload", self.payload_combo)
         form.addRow("Delivery resource", self.delivery_resource_combo)
+        form.addRow("Default selection policy", self.delivery_selection_combo)
+        form.addRow("Scheduled preferences", self.preference_schedule_edit)
         form.addRow("Tracked item exchange", self.tracked_item_exchange_check)
         form.addRow("Exchange mode", self.exchange_mode_combo)
         form.addRow("Route profile", self.route_profile_combo)
@@ -1758,8 +1777,9 @@ class BulkDepartmentTaskGenerationDialog(QDialog):
                 "dropoff_location": dropoff_locations[0] if dropoff_locations else "",
                 "dropoff_locations": dropoff_locations,
                 "payload": self.payload_combo.currentText().strip(),
-                "delivery_resource": normalise_delivery_resource_policy(
-                    {"mode": self.delivery_resource_combo.currentData()}
+                "delivery_resource": _delivery_policy_from_controls(
+                    self.delivery_resource_combo, self.delivery_selection_combo,
+                    self.preference_schedule_edit,
                 ),
                 "tracked_item_exchange": self.tracked_item_exchange_check.isChecked(),
                 "exchange_mode": self.exchange_mode_combo.currentText().strip(),
@@ -2078,6 +2098,13 @@ class TaskGenerationSettingsDialog(QDialog):
         self.payload_combo = QComboBox()
         self.payload_combo.addItems([""] + self.payload_names)
         self.delivery_resource_combo = _make_delivery_resource_combo("amr")
+        self.delivery_selection_combo = _delivery_selection_combo("amr")
+        self.preference_schedule_edit = _preference_schedule_edit("amr")
+        _bind_delivery_preference_controls(
+            self.delivery_resource_combo,
+            self.delivery_selection_combo,
+            self.preference_schedule_edit,
+        )
 
         self.tracked_item_exchange_check = QCheckBox(
             "Generate tracked item exchange tasks"
@@ -2220,6 +2247,8 @@ class TaskGenerationSettingsDialog(QDialog):
         form.addRow("Drop-off destinations", dropoff_row)
         form.addRow("Payload", self.payload_combo)
         form.addRow("Delivery resource", self.delivery_resource_combo)
+        form.addRow("Default selection policy", self.delivery_selection_combo)
+        form.addRow("Scheduled preferences", self.preference_schedule_edit)
         form.addRow("Tracked item exchange", self.tracked_item_exchange_check)
         form.addRow("Exchange mode", self.exchange_mode_combo)
         form.addRow("Route profile", self.route_profile_combo)
@@ -3678,6 +3707,10 @@ class TaskGenerationSettingsDialog(QDialog):
         self.delivery_resource_combo.setCurrentIndex(
             max(0, self.delivery_resource_combo.findData("amr"))
         )
+        self.delivery_selection_combo.setCurrentIndex(
+            max(0, self.delivery_selection_combo.findData("earliest_completion"))
+        )
+        self.preference_schedule_edit.clear()
         self.route_profile_combo.setCurrentText("")
         self.return_enabled_check.setChecked(False)
         self.return_payload_combo.setCurrentText("")
@@ -3765,6 +3798,14 @@ class TaskGenerationSettingsDialog(QDialog):
         )
         self.delivery_resource_combo.setCurrentIndex(
             max(0, self.delivery_resource_combo.findData(delivery_mode))
+        )
+        self.delivery_selection_combo.setCurrentIndex(max(
+            0, self.delivery_selection_combo.findData(
+                normalise_delivery_resource_policy(delivery_policy).get("selection_policy")
+            )
+        ))
+        self.preference_schedule_edit.setPlainText(
+            _preference_schedule_edit(delivery_policy).toPlainText()
         )
         self.tracked_item_exchange_check.setChecked(
             bool(item.get("tracked_item_exchange", False))
@@ -4040,8 +4081,9 @@ class TaskGenerationSettingsDialog(QDialog):
             "dropoff_location": dropoff_locations[0] if dropoff_locations else "",
             "dropoff_locations": dropoff_locations,
             "payload": self.payload_combo.currentText().strip(),
-            "delivery_resource": normalise_delivery_resource_policy(
-                {"mode": self.delivery_resource_combo.currentData()}
+            "delivery_resource": _delivery_policy_from_controls(
+                self.delivery_resource_combo, self.delivery_selection_combo,
+                self.preference_schedule_edit,
             ),
             "tracked_item_exchange": self.tracked_item_exchange_check.isChecked(),
             "exchange_mode": self.exchange_mode_combo.currentText().strip(),
@@ -5473,6 +5515,20 @@ class StaffDeliveryResourceEditorDialog(QDialog):
             self.seed.get("turnaround_time_sec", 300.0), minimum=0.0, maximum=86_400.0,
             decimals=0, suffix=" s", step=30.0,
         )
+        self.response_delay_min_edit = _double_input(
+            self.seed.get("response_delay_min_sec", 0.0), minimum=0.0, maximum=86_400.0,
+            decimals=0, suffix=" s", step=30.0,
+        )
+        self.response_delay_max_edit = _double_input(
+            self.seed.get("response_delay_max_sec", 0.0), minimum=0.0, maximum=86_400.0,
+            decimals=0, suffix=" s", step=30.0,
+        )
+        self.response_delay_away_only_check = QCheckBox(
+            "Only when the porter is away from their base location"
+        )
+        self.response_delay_away_only_check.setChecked(
+            bool(self.seed.get("response_delay_away_from_base_only", True))
+        )
 
         self.shift_start_edit = QTimeEdit()
         self.shift_start_edit.setDisplayFormat("HH:mm")
@@ -5504,6 +5560,9 @@ class StaffDeliveryResourceEditorDialog(QDialog):
         form.addRow("Payload width allowance", self.width_edit)
         form.addRow("Payload height allowance", self.height_edit)
         form.addRow("Turnaround after delivery", self.turnaround_edit)
+        form.addRow("Task acceptance delay (minimum)", self.response_delay_min_edit)
+        form.addRow("Task acceptance delay (maximum)", self.response_delay_max_edit)
+        form.addRow("Acceptance-delay rule", self.response_delay_away_only_check)
         form.addRow("Shift starts", self.shift_start_edit)
         form.addRow("Shift ends", self.shift_end_edit)
         form.addRow("Working days", self.days_selector)
@@ -5540,6 +5599,8 @@ class StaffDeliveryResourceEditorDialog(QDialog):
             days = self.days_selector.selected_days()
             if not days:
                 raise ValueError("Select at least one working day.")
+            if self.response_delay_max_edit.value() < self.response_delay_min_edit.value():
+                raise ValueError("The maximum task acceptance delay cannot be less than the minimum.")
             self.result = normalise_staff_delivery_resource({
                 "id": resource_id,
                 "quantity": int(self.quantity_edit.value()),
@@ -5550,6 +5611,9 @@ class StaffDeliveryResourceEditorDialog(QDialog):
                 "payload_width_capacity_m": float(self.width_edit.value()),
                 "payload_height_capacity_m": float(self.height_edit.value()),
                 "turnaround_time_sec": float(self.turnaround_edit.value()),
+                "response_delay_min_sec": float(self.response_delay_min_edit.value()),
+                "response_delay_max_sec": float(self.response_delay_max_edit.value()),
+                "response_delay_away_from_base_only": self.response_delay_away_only_check.isChecked(),
                 "shift_start_time": self.shift_start_edit.time().toString("HH:mm"),
                 "shift_end_time": self.shift_end_edit.time().toString("HH:mm"),
                 "days_active": days,
@@ -8597,10 +8661,25 @@ class SimulationSettingsDialog(QDialog):
         self.generated_stagger_spin.setToolTip(
             "Adds a small spacing between tasks generated for exactly the same instant."
         )
+        self.delivery_operating_model_combo = QComboBox()
+        for value, label in (
+            ("amr_only", "AMR only"),
+            ("porter_only", "Porter only"),
+            ("hybrid_amr_preference", "Hybrid (AMR preference)"),
+            ("hybrid_porter_preference", "Hybrid (Porter preference)"),
+        ):
+            self.delivery_operating_model_combo.addItem(label, value)
+        operating_model = str(simulation.get("delivery_operating_model", "amr_only") or "amr_only")
+        operating_index = self.delivery_operating_model_combo.findData(operating_model)
+        self.delivery_operating_model_combo.setCurrentIndex(max(0, operating_index))
+        self.delivery_operating_model_combo.setToolTip(
+            "Declares the scenario operating model for reporting. Task-level delivery rules still control dispatch."
+        )
         period_form.addRow("Starts", self.start_datetime_edit)
         period_form.addRow("End condition", self.use_end_datetime_check)
         period_form.addRow("Ends", self.end_datetime_edit)
         period_form.addRow("Simulation rate", self.tick_rate_spin)
+        period_form.addRow("Delivery operating model", self.delivery_operating_model_combo)
         period_form.addRow("Same-time task release spacing", self.generated_stagger_spin)
         period_layout.addWidget(period_box)
         period_layout.addWidget(
@@ -8726,6 +8805,7 @@ class SimulationSettingsDialog(QDialog):
         result.setdefault("start_datetime", "2026-01-05T06:00:00")
         result.setdefault("end_datetime", "2026-01-06T06:00:00")
         result.setdefault("tick_rate", 1000)
+        result.setdefault("delivery_operating_model", "amr_only")
         result.setdefault("generated_task_release_stagger_sec", 0.25)
         result.setdefault("precompute_static_routes", True)
         result.setdefault("route_precompute_max_pairs", 100000)
@@ -8756,6 +8836,7 @@ class SimulationSettingsDialog(QDialog):
                 if self.use_end_datetime_check.isChecked()
                 else "",
                 "tick_rate": float(self.tick_rate_spin.value()),
+                "delivery_operating_model": str(self.delivery_operating_model_combo.currentData()),
                 "generated_task_release_stagger_sec": float(self.generated_stagger_spin.value()),
                 "precompute_static_routes": self.precompute_routes_check.isChecked(),
                 "route_precompute_max_pairs": int(self.route_precompute_max_pairs_spin.value()),

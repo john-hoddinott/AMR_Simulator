@@ -99,9 +99,10 @@ the drop-off, and becomes available after its configured turnaround time.
 
 `03_staff_availability.json` is a fast roster regression with two individual
 porters, a 07:00–07:15 shift, a 07:05–07:10 contractual break and 30 seconds of
-turnaround. It checks pre-shift waiting, two simultaneous assignments, busy
-waiting, break deferral and a task deferred to the next active day because it
-cannot finish before shift end.
+turnaround. A reproducible 60–120 second task-acceptance delay applies when a
+porter is away from base. It checks pre-shift waiting, two simultaneous
+assignments, busy waiting, break deferral, acceptance-delay logging and a task
+deferred to the next active day because it cannot finish before shift end.
 
 ```powershell
 New-Item -ItemType Directory -Force examples\delivery_resources\outputs\03_staff_availability
@@ -112,3 +113,57 @@ New-Item -ItemType Directory -Force examples\delivery_resources\outputs\03_staff
   --visualiser-csv examples\delivery_resources\outputs\03_staff_availability\visualiser_steps.csv `
   --failed-tasks-csv examples\delivery_resources\outputs\03_staff_availability\failed_tasks.csv
 ```
+
+## 04 — AMR or staff dispatch
+
+`04_either_dispatch.json` is a 25-minute mixed-resource checkpoint. It covers
+earliest-completion selection, scheduled AMR and staff preferences, and fallback
+when the preferred resource cannot carry the payload.
+
+```powershell
+New-Item -ItemType Directory -Force examples\delivery_resources\outputs\04_either_dispatch
+.\.venv\Scripts\python.exe simulator.py `
+  --config examples\delivery_resources\04_either_dispatch.json `
+  --verbose `
+  --verbose-csv examples\delivery_resources\outputs\04_either_dispatch\simulation_steps.csv `
+  --visualiser-csv examples\delivery_resources\outputs\04_either_dispatch\visualiser_steps.csv `
+  --failed-tasks-csv examples\delivery_resources\outputs\04_either_dispatch\failed_tasks.csv
+```
+
+Open the same file in the editor with:
+
+```powershell
+.\.venv\Scripts\python.exe visualiser\amr_editor_main.py --config examples\delivery_resources\04_either_dispatch.json
+```
+
+Generate its compact report with:
+
+```powershell
+.\.venv\Scripts\python.exe report\amr_report_main.py `
+  examples\delivery_resources\outputs\04_either_dispatch\simulation_steps.csv `
+  --config-json examples\delivery_resources\04_either_dispatch.json `
+  --failed-tasks-csv examples\delivery_resources\outputs\04_either_dispatch\failed_tasks.csv `
+  --omit-drawings `
+  -o examples\delivery_resources\outputs\04_either_dispatch\simulation_report.pdf
+```
+
+Preference-window editor syntax is one window per line:
+
+```text
+mon,tue,wed,thu,fri | 07:00 | 17:00 | prefer_staff
+```
+
+Leave the days field empty for all seven days. Leave both time fields empty for
+the full 24-hour day. Overnight windows are supported; overlapping windows are
+reported as validation errors.
+
+## Future urgent-delivery demand
+
+Urgent deliveries should enter the same task queue and mixed-resource dispatcher,
+with a higher priority and an optional response-time target. A later generator can
+model them as reproducible random arrivals (for example, arrivals per day plus a
+time-of-day profile) derived from an existing logistics flow. This will expose the
+real operating impact: interruption of planned work, resource contention, missed
+response targets and any value from changing AMR/staff preference by time window.
+Keeping urgency as task metadata means it will use the selection, compatibility,
+roster, routing and fallback rules implemented here rather than duplicating them.

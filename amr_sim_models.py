@@ -125,6 +125,9 @@ class StaffDeliveryResource:
     payload_width_capacity_m: float = 0.8
     payload_height_capacity_m: float = 1.5
     turnaround_time_sec: float = 0.0
+    response_delay_min_sec: float = 0.0
+    response_delay_max_sec: float = 0.0
+    response_delay_away_from_base_only: bool = True
     allowed_payload_types: List[str] = field(default_factory=list)
     capabilities: List[str] = field(default_factory=list)
     shift_start_time: str = "07:00"

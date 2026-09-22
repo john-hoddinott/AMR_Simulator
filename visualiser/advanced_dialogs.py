@@ -70,6 +70,65 @@ def _delivery_resource_combo(value=None):
     return combo
 
 
+def _delivery_selection_combo(value=None):
+    policy = normalise_delivery_resource_policy(value)
+    combo = QComboBox()
+    combo.addItem("Earliest completion", "earliest_completion")
+    combo.addItem("Prefer AMR", "prefer_amr")
+    combo.addItem("Prefer staff", "prefer_staff")
+    combo.setCurrentIndex(max(0, combo.findData(policy.get("selection_policy"))))
+    return combo
+
+
+def _preference_schedule_edit(value=None):
+    policy = normalise_delivery_resource_policy(value)
+    edit = QPlainTextEdit()
+    edit.setMaximumHeight(78)
+    edit.setPlaceholderText("mon,tue,wed,thu,fri | 07:00 | 17:00 | prefer_staff")
+    edit.setToolTip(
+        "One window per line: days | start | end | preference. "
+        "Leave days blank for all days and times blank for all day."
+    )
+    edit.setPlainText("\n".join(
+        " | ".join([
+            ",".join(item.get("days_active", [])), item.get("start_time", ""),
+            item.get("end_time", ""), item.get("preference", "earliest_completion")
+        ]) for item in policy.get("preference_schedule", [])
+    ))
+    return edit
+
+
+def _bind_delivery_preference_controls(mode_combo, selection_combo, schedule_edit):
+    """Enable preference controls only when both resource kinds are eligible."""
+    def refresh(*_args):
+        enabled = mode_combo.currentData() == "either"
+        selection_combo.setEnabled(enabled)
+        schedule_edit.setEnabled(enabled)
+
+    mode_combo.currentIndexChanged.connect(refresh)
+    refresh()
+
+
+def _delivery_policy_from_controls(mode_combo, selection_combo, schedule_edit):
+    schedule = []
+    for line_number, line in enumerate(schedule_edit.toPlainText().splitlines(), 1):
+        if not line.strip():
+            continue
+        parts = [part.strip() for part in line.split("|")]
+        if len(parts) != 4:
+            raise ValueError(f"Preference schedule line {line_number} must contain days | start | end | preference")
+        days, start, end, preference = parts
+        schedule.append({
+            "days_active": [item.strip().lower() for item in days.split(",") if item.strip()],
+            "start_time": start, "end_time": end, "preference": preference,
+        })
+    return normalise_delivery_resource_policy({
+        "mode": mode_combo.currentData(),
+        "selection_policy": selection_combo.currentData(),
+        "preference_schedule": schedule,
+    })
+
+
 def _date_time_input(value=None):
     edit = QDateTimeEdit()
     edit.setCalendarPopup(True)
@@ -625,6 +684,17 @@ class TaskFormDialog(QDialog):
         self.delivery_resource_combo = _delivery_resource_combo(
             self.seed.get("delivery_resource", self.seed.get("delivery_method", "amr"))
         )
+        self.delivery_selection_combo = _delivery_selection_combo(
+            self.seed.get("delivery_resource", self.seed.get("delivery_method", "amr"))
+        )
+        self.preference_schedule_edit = _preference_schedule_edit(
+            self.seed.get("delivery_resource", self.seed.get("delivery_method", "amr"))
+        )
+        _bind_delivery_preference_controls(
+            self.delivery_resource_combo,
+            self.delivery_selection_combo,
+            self.preference_schedule_edit,
+        )
 
         form.addRow("ID", self.id_edit)
         form.addRow("Pickup", pickup_row)
@@ -636,6 +706,8 @@ class TaskFormDialog(QDialog):
         form.addRow("Labels (comma-separated)", self.labels_edit)
         form.addRow("Route profile", self.route_profile_combo)
         form.addRow("Delivery resource", self.delivery_resource_combo)
+        form.addRow("Default selection policy", self.delivery_selection_combo)
+        form.addRow("Scheduled preferences", self.preference_schedule_edit)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
@@ -686,8 +758,10 @@ class TaskFormDialog(QDialog):
                 "priority": int(self.priority_edit.value()),
                 "labels": [x.strip() for x in self.labels_edit.text().split(",")],
                 "route_profile": self.route_profile_combo.currentText().strip(),
-                "delivery_resource": normalise_delivery_resource_policy(
-                    {"mode": self.delivery_resource_combo.currentData()}
+                "delivery_resource": _delivery_policy_from_controls(
+                    self.delivery_resource_combo,
+                    self.delivery_selection_combo,
+                    self.preference_schedule_edit,
                 ),
                 "manual_task": True,
                 "manual_single_payload_only": True,

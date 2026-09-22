@@ -121,10 +121,12 @@ def amr_supports_manual_tasks(amr: dict) -> bool:
 
 
 DELIVERY_RESOURCE_MODES = {"amr", "staff", "either"}
+DELIVERY_SELECTION_POLICIES = {"earliest_completion", "prefer_amr", "prefer_staff"}
+DELIVERY_SCHEDULE_DAYS = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
 
 
 def default_delivery_resource_policy() -> dict:
-    return {"mode": "amr"}
+    return {"mode": "amr", "selection_policy": "earliest_completion", "preference_schedule": []}
 
 
 def normalise_delivery_resource_policy(value) -> dict:
@@ -138,12 +140,106 @@ def normalise_delivery_resource_policy(value) -> dict:
     if mode not in DELIVERY_RESOURCE_MODES:
         mode = "amr"
     result = {"mode": mode}
+    selection_policy = str(source.get("selection_policy", "earliest_completion") or "earliest_completion").strip().lower()
+    if selection_policy not in DELIVERY_SELECTION_POLICIES:
+        selection_policy = "earliest_completion"
+    result["selection_policy"] = selection_policy
+    schedule = []
+    for raw in source.get("preference_schedule", []) or []:
+        if not isinstance(raw, dict):
+            continue
+        days = raw.get("days_active", []) or []
+        if isinstance(days, str):
+            days = [item.strip().lower() for item in days.split(",")]
+        preference = str(raw.get("preference", "earliest_completion") or "earliest_completion").strip().lower()
+        if preference not in DELIVERY_SELECTION_POLICIES:
+            preference = "earliest_completion"
+        schedule.append({
+            "days_active": list(dict.fromkeys(str(item).strip().lower()[:3] for item in days if str(item).strip())),
+            "start_time": str(raw.get("start_time", "") or "").strip(),
+            "end_time": str(raw.get("end_time", "") or "").strip(),
+            "preference": preference,
+        })
+    result["preference_schedule"] = schedule
     for key in ("allowed_amr_types", "allowed_staff_types", "required_capabilities"):
         values = source.get(key, [])
         if isinstance(values, str):
             values = [item.strip() for item in values.split(",")]
         result[key] = list(dict.fromkeys(str(item).strip() for item in (values or []) if str(item).strip()))
     return result
+
+
+def delivery_resource_policy_validation_errors(value, label: str) -> List[str]:
+    """Validate selection preferences, including overlaps across midnight."""
+    if not isinstance(value, dict):
+        return []
+    errors = []
+    raw_selection = str(value.get("selection_policy", "earliest_completion") or "").strip().lower()
+    if raw_selection not in DELIVERY_SELECTION_POLICIES:
+        errors.append(f"{label} has invalid default delivery selection policy: {raw_selection}")
+
+    intervals_by_day = {day: [] for day in DELIVERY_SCHEDULE_DAYS}
+
+    def parse_time(text, window_number):
+        try:
+            hour_text, minute_text = str(text).split(":", 1)
+            hour, minute = int(hour_text), int(minute_text)
+            if not (0 <= hour <= 23 and 0 <= minute <= 59):
+                raise ValueError
+            return hour * 60 + minute
+        except Exception:
+            errors.append(
+                f"{label} preference window {window_number} has invalid time: {text} (use HH:mm)"
+            )
+            return None
+
+    for number, window in enumerate(value.get("preference_schedule", []) or [], 1):
+        if not isinstance(window, dict):
+            errors.append(f"{label} preference window {number} is not an object")
+            continue
+        raw_preference = str(window.get("preference", "") or "").strip().lower()
+        if raw_preference not in DELIVERY_SELECTION_POLICIES:
+            errors.append(
+                f"{label} preference window {number} has invalid policy: {raw_preference}"
+            )
+        raw_days = window.get("days_active", []) or []
+        if isinstance(raw_days, str):
+            raw_days = [item.strip().lower() for item in raw_days.split(",")]
+        days = {str(item).strip().lower()[:3] for item in raw_days if str(item).strip()}
+        invalid_days = sorted(days - DELIVERY_SCHEDULE_DAYS)
+        if invalid_days:
+            errors.append(
+                f"{label} preference window {number} has invalid days: {', '.join(invalid_days)}"
+            )
+        days = days & DELIVERY_SCHEDULE_DAYS or set(DELIVERY_SCHEDULE_DAYS)
+        start_text = str(window.get("start_time", "") or "").strip()
+        end_text = str(window.get("end_time", "") or "").strip()
+        if bool(start_text) != bool(end_text):
+            errors.append(
+                f"{label} preference window {number} must specify both start and end times, or neither"
+            )
+            continue
+        if not start_text:
+            pieces = [(0, 1440)]
+        else:
+            start, end = parse_time(start_text, number), parse_time(end_text, number)
+            if start is None or end is None:
+                continue
+            if start == end:
+                pieces = [(0, 1440)]
+            elif end > start:
+                pieces = [(start, end)]
+            else:
+                pieces = [(start, 1440), (0, end)]
+        for day in days:
+            for start, end in pieces:
+                for existing_start, existing_end, existing_number in intervals_by_day[day]:
+                    if start < existing_end and existing_start < end:
+                        errors.append(
+                            f"{label} preference windows {existing_number} and {number} overlap on {day}"
+                        )
+                intervals_by_day[day].append((start, end, number))
+    return errors
 
 
 def normalise_staff_delivery_resource(value: Optional[dict], index: int = 1) -> dict:
@@ -172,6 +268,9 @@ def normalise_staff_delivery_resource(value: Optional[dict], index: int = 1) -> 
         "payload_width_capacity_m": max(0.0, float(source.get("payload_width_capacity_m", 0.8) or 0.0)),
         "payload_height_capacity_m": max(0.0, float(source.get("payload_height_capacity_m", 1.5) or 0.0)),
         "turnaround_time_sec": max(0.0, float(source.get("turnaround_time_sec", 300.0) or 0.0)),
+        "response_delay_min_sec": max(0.0, float(source.get("response_delay_min_sec", 0.0) or 0.0)),
+        "response_delay_max_sec": max(0.0, float(source.get("response_delay_max_sec", 0.0) or 0.0)),
+        "response_delay_away_from_base_only": bool(source.get("response_delay_away_from_base_only", True)),
         "shift_start_time": str(source.get("shift_start_time", "07:00") or "07:00").strip(),
         "shift_end_time": str(source.get("shift_end_time", "15:00") or "15:00").strip(),
         "days_active": list(dict.fromkeys(str(item).strip().lower() for item in (days or []) if str(item).strip())),
@@ -526,6 +625,7 @@ def merge_task_generation_defaults(value: Optional[dict]) -> dict:
 
 DEFAULT_JSON = {
     "simulation": {
+        "delivery_operating_model": "amr_only",
         "start_datetime": "2026-01-05T06:00:00",
         "end_datetime": "2026-01-06T06:00:00",
         "tick_rate": 1000,
@@ -601,6 +701,10 @@ class JsonStore:
     def ensure_simulation_defaults(self) -> None:
         simulation = self.data.setdefault("simulation", {})
         default_simulation = DEFAULT_JSON.get("simulation", {})
+        simulation.setdefault(
+            "delivery_operating_model",
+            default_simulation.get("delivery_operating_model", "amr_only"),
+        )
         simulation.setdefault(
             "start_datetime",
             default_simulation.get("start_datetime", "2026-01-05T06:00:00"),
@@ -2154,6 +2258,9 @@ class JsonStore:
                 errors.append(
                     f"Task {task.get('id')} has invalid delivery resource mode: {raw_mode}"
                 )
+            errors.extend(delivery_resource_policy_validation_errors(
+                raw_policy, f"Task {task.get('id')}"
+            ))
             if (
                 task.get("pickup") not in location_names
                 and task.get("pickup") not in names
@@ -2175,6 +2282,15 @@ class JsonStore:
             rp = task.get("route_profile", "")
             if rp and rp not in route_profile_names:
                 errors.append(f"Task {task.get('id')} route profile not found: {rp}")
+
+        task_generation = self.data.get("task_generation", {}) or {}
+        for category_name, category in (task_generation.get("categories", {}) or {}).items():
+            if not isinstance(category, dict):
+                continue
+            policy = category.get("delivery_resource", category.get("delivery_method", "amr"))
+            errors.extend(delivery_resource_policy_validation_errors(
+                policy, f"Generated flow {category_name}"
+            ))
 
         for profile_name, profile in self.data.get("route_profiles", {}).items():
             for lift_id in profile.get("allowed_lifts", []):

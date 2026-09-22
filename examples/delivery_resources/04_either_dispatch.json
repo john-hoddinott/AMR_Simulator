@@ -1,0 +1,133 @@
+{
+  "simulation": {
+    "delivery_operating_model": "hybrid_amr_preference",
+    "start_datetime": "2026-01-05T08:00:00",
+    "end_datetime": "2026-01-05T08:25:00",
+    "tick_rate": 1000
+  },
+  "building": {
+    "load_unload_time_sec": 10.0,
+    "floor_height_m": 4.0,
+    "charge_location": "AMR-BASE",
+    "enable_idle_return": false
+  },
+  "locations": [
+    {
+      "name": "AMR-BASE", "floor": 0, "x": 0, "y": 0,
+      "inventory_spaces": [{
+        "name": "AMR-MIXED charger 1", "space_type": "amr",
+        "stores_amr": true, "has_charger": true,
+        "points": [
+          { "dx": -0.5, "dy": -0.5 }, { "dx": 0.5, "dy": -0.5 },
+          { "dx": 0.5, "dy": 0.5 }, { "dx": -0.5, "dy": 0.5 }
+        ],
+        "payload_slots": [{
+          "slot_type": "amr", "amr_type": "AMR-MIXED",
+          "dx": 0.0, "dy": 0.0, "rotation_deg": 0.0
+        }]
+      }]
+    },
+    { "name": "PICKUP", "floor": 0, "x": 10, "y": 0 },
+    { "name": "DELIVERY", "floor": 0, "x": 20, "y": 0 }
+  ],
+  "corridors": {
+    "nodes": [],
+    "edges": [
+      { "from": "AMR-BASE", "to": "PICKUP" },
+      { "from": "PICKUP", "to": "AMR-BASE" },
+      { "from": "PICKUP", "to": "DELIVERY" },
+      { "from": "DELIVERY", "to": "PICKUP" }
+    ],
+    "auto_connect": false
+  },
+  "payloads": [
+    {
+      "name": "shared_parcel", "weight_kg": 5,
+      "length_m": 0.4, "width_m": 0.3, "height_m": 0.2,
+      "size_units": 1, "allowed_carry_orientations": ["lengthways", "sideways"]
+    },
+    {
+      "name": "amr_only_load", "weight_kg": 60,
+      "length_m": 0.8, "width_m": 0.9, "height_m": 0.6,
+      "size_units": 1, "allowed_carry_orientations": ["lengthways", "sideways"]
+    },
+    {
+      "name": "staff_only_load", "weight_kg": 120,
+      "length_m": 0.8, "width_m": 0.7, "height_m": 0.6,
+      "size_units": 1, "allowed_carry_orientations": ["lengthways", "sideways"]
+    }
+  ],
+  "amrs": [{
+    "id": "AMR-MIXED", "quantity": 1,
+    "payload_capacity_kg": 100,
+    "payload_length_capacity_m": 1.0,
+    "payload_width_capacity_m": 1.0,
+    "payload_height_capacity_m": 1.0,
+    "payload_size_capacity": 1,
+    "length_m": 0.8, "width_m": 0.6, "height_m": 1.2,
+    "speed_m_per_sec": 1.0,
+    "motor_power_w": 800, "battery_capacity_kwh": 10,
+    "battery_charge_rate_kw": 3, "recharge_threshold_percent": 20,
+    "battery_soc_percent": 100
+  }],
+  "staff_delivery_resources": [{
+    "id": "PORTER-MIXED", "quantity": 1,
+    "base_location": "PICKUP", "speed_m_per_sec": 1.2,
+    "payload_capacity_kg": 150,
+    "payload_length_capacity_m": 1.0,
+    "payload_width_capacity_m": 0.8,
+    "payload_height_capacity_m": 1.5,
+    "turnaround_time_sec": 15,
+    "shift_start_time": "07:00", "shift_end_time": "17:00",
+    "days_active": ["mon", "tue", "wed", "thu", "fri"],
+    "breaks": [], "capabilities": ["general_delivery"]
+  }],
+  "lifts": [],
+  "tasks": [
+    {
+      "id": "EITHER-EARLIEST", "pickup": "PICKUP", "dropoff": "DELIVERY",
+      "payload": "shared_parcel", "release_datetime": "2026-01-05T08:00:00",
+      "priority": 10,
+      "delivery_resource": { "mode": "either", "selection_policy": "earliest_completion" }
+    },
+    {
+      "id": "EITHER-PREFER-AMR", "pickup": "PICKUP", "dropoff": "DELIVERY",
+      "payload": "shared_parcel", "release_datetime": "2026-01-05T08:05:00",
+      "priority": 10,
+      "delivery_resource": {
+        "mode": "either", "selection_policy": "earliest_completion",
+        "preference_schedule": [{
+          "days_active": ["mon"], "start_time": "08:05", "end_time": "08:10",
+          "preference": "prefer_amr"
+        }]
+      }
+    },
+    {
+      "id": "EITHER-PREFER-STAFF", "pickup": "PICKUP", "dropoff": "DELIVERY",
+      "payload": "shared_parcel", "release_datetime": "2026-01-05T08:10:00",
+      "priority": 10,
+      "delivery_resource": {
+        "mode": "either", "selection_policy": "prefer_amr",
+        "preference_schedule": [{
+          "days_active": ["mon"], "start_time": "08:10", "end_time": "08:15",
+          "preference": "prefer_staff"
+        }]
+      }
+    },
+    {
+      "id": "STAFF-PREFERENCE-FALLS-BACK-TO-AMR", "pickup": "PICKUP", "dropoff": "DELIVERY",
+      "payload": "amr_only_load", "release_datetime": "2026-01-05T08:15:00",
+      "priority": 10,
+      "delivery_resource": { "mode": "either", "selection_policy": "prefer_staff" }
+    },
+    {
+      "id": "AMR-PREFERENCE-FALLS-BACK-TO-STAFF", "pickup": "PICKUP", "dropoff": "DELIVERY",
+      "payload": "staff_only_load", "release_datetime": "2026-01-05T08:20:00",
+      "priority": 10,
+      "delivery_resource": { "mode": "either", "selection_policy": "prefer_amr" }
+    }
+  ],
+  "route_profiles": {
+    "default": { "allowed_lifts": [], "allowed_nodes": [], "allowed_edges": [] }
+  }
+}

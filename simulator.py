@@ -1,5 +1,6 @@
 import argparse
 import csv
+import hashlib
 import heapq
 from bisect import bisect_left, insort_right
 import json
@@ -105,6 +106,9 @@ class Simulation:
         self.location_reservations = defaultdict(list)
         self.config = config
         sim_cfg = config.get("simulation", {})
+        self.delivery_operating_model = str(
+            sim_cfg.get("delivery_operating_model", "amr_only") or "amr_only"
+        ).strip().lower()
         scenario_cfg = config.get("scenario_testing", {}) or {}
         self.scenario_mode = bool(scenario_cfg.get("enabled", False))
         self.scenario_name = str(scenario_cfg.get("active_scenario", "Normal operation") or "Normal operation")
@@ -287,6 +291,15 @@ class Simulation:
         )
         self.max_single_candidate_tasks = max(
             1, int(sim_cfg.get("max_single_candidate_tasks", 8) or 8)
+        )
+        self.max_staff_candidate_tasks = max(
+            1,
+            int(
+                sim_cfg.get(
+                    "max_staff_candidate_tasks", self.max_single_candidate_tasks
+                )
+                or self.max_single_candidate_tasks
+            ),
         )
         self.max_multi_stop_candidate_tasks = max(
             2, int(sim_cfg.get("max_multi_stop_candidate_tasks", 8) or 8)
@@ -701,6 +714,11 @@ class Simulation:
                         payload_width_capacity_m=max(0.0, float(resource_type.get("payload_width_capacity_m", 0.8) or 0.0)),
                         payload_height_capacity_m=max(0.0, float(resource_type.get("payload_height_capacity_m", 1.5) or 0.0)),
                         turnaround_time_sec=max(0.0, float(resource_type.get("turnaround_time_sec", 0.0) or 0.0)),
+                        response_delay_min_sec=max(0.0, float(resource_type.get("response_delay_min_sec", 0.0) or 0.0)),
+                        response_delay_max_sec=max(0.0, float(resource_type.get("response_delay_max_sec", 0.0) or 0.0)),
+                        response_delay_away_from_base_only=_bool_from_config(
+                            resource_type.get("response_delay_away_from_base_only", True), True
+                        ),
                         allowed_payload_types=[
                             str(value).strip()
                             for value in resource_type.get("allowed_payload_types", []) or []
@@ -8203,12 +8221,42 @@ class Simulation:
         mode = str(value.get("mode", "amr") or "amr").strip().lower()
         if mode not in {"amr", "staff", "either"}:
             mode = "amr"
+        selection_policy = str(value.get("selection_policy", "earliest_completion") or "earliest_completion").strip().lower()
+        if selection_policy not in {"earliest_completion", "prefer_amr", "prefer_staff"}:
+            selection_policy = "earliest_completion"
         return {
             "mode": mode,
+            "selection_policy": selection_policy,
+            "preference_schedule": [dict(x) for x in value.get("preference_schedule", []) or [] if isinstance(x, dict)],
             "allowed_amr_types": [str(x).strip() for x in value.get("allowed_amr_types", []) or [] if str(x).strip()],
             "allowed_staff_types": [str(x).strip() for x in value.get("allowed_staff_types", []) or [] if str(x).strip()],
             "required_capabilities": [str(x).strip() for x in value.get("required_capabilities", []) or [] if str(x).strip()],
         }
+
+    def _active_delivery_selection_policy(self, task: Task, at_time: float) -> str:
+        policy = self._delivery_resource_policy(task)
+        current = self.clock.start_datetime + timedelta(seconds=max(0.0, at_time))
+        day_name = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")[current.weekday()]
+        second_of_day = current.hour * 3600 + current.minute * 60 + current.second
+        for window in policy["preference_schedule"]:
+            days = window.get("days_active", []) or []
+            if isinstance(days, str):
+                days = [x.strip().lower() for x in days.split(",")]
+            days = {str(x).strip().lower()[:3] for x in days if str(x).strip()}
+            if days and day_name not in days:
+                continue
+            start_text = str(window.get("start_time", "") or "").strip()
+            end_text = str(window.get("end_time", "") or "").strip()
+            if not start_text and not end_text:
+                matches = True
+            else:
+                start = self._hhmm_seconds(start_text, 0)
+                end = self._hhmm_seconds(end_text, 86400)
+                matches = (start <= second_of_day < end) if end > start else (second_of_day >= start or second_of_day < end)
+            if matches:
+                preference = str(window.get("preference", "earliest_completion") or "earliest_completion").strip().lower()
+                return preference if preference in {"earliest_completion", "prefer_amr", "prefer_staff"} else "earliest_completion"
+        return policy["selection_policy"]
 
     def _staff_can_deliver_task(self, staff: StaffDeliveryResource, task: Task) -> bool:
         policy = self._delivery_resource_policy(task)
@@ -8317,6 +8365,24 @@ class Simulation:
             return f"{staff.id} is off shift; next rostered availability is {self.clock.format_sim_time(next_time)}"
         return f"{staff.id} cannot finish before the next break or shift end"
 
+    @staticmethod
+    def _staff_response_delay_sec(staff: StaffDeliveryResource, task: Task) -> float:
+        """Return a reproducible task-acceptance delay for this porter/task pair."""
+        if (
+            staff.response_delay_away_from_base_only
+            and staff.location_name == staff.base_location
+        ):
+            return 0.0
+        minimum = max(0.0, float(staff.response_delay_min_sec or 0.0))
+        maximum = max(minimum, float(staff.response_delay_max_sec or 0.0))
+        if maximum <= minimum:
+            return minimum
+        token = (
+            f"{staff.id}|{task.id}|{float(getattr(task, 'release_time', 0.0) or 0.0):.6f}"
+        ).encode("utf-8")
+        sample = int.from_bytes(hashlib.sha256(token).digest()[:8], "big") / float(2**64 - 1)
+        return minimum + ((maximum - minimum) * sample)
+
     def _estimate_task_for_staff(
         self, staff: StaffDeliveryResource, task: Task, reserve: bool = False,
         start_time_override: Optional[float] = None,
@@ -8342,6 +8408,18 @@ class Simulation:
         total = 0.0
         lift_empty_sec_total = 0.0
         lift_loaded_sec_total = 0.0
+
+        response_delay = self._staff_response_delay_sec(staff, task)
+        if response_delay > 0.0:
+            segments.append({
+                "type": "wait_for_task_acceptance",
+                "from": staff.location_name,
+                "to": staff.location_name,
+                "duration": response_delay,
+                "distance_m": 0.0,
+            })
+            t += response_delay
+            total += response_delay
 
         def move_between(location_a, location_b, current_time_value, rules, carried_payload):
             nonlocal lift_empty_sec_total, lift_loaded_sec_total
@@ -9711,19 +9789,52 @@ class Simulation:
                 carrying_payload = False
             segment_start += duration
 
-    def _try_assign_staff_task(self) -> bool:
+    def _try_assign_staff_task(self, allowed_modes=None, required_task_id: str = "") -> bool:
+        allowed_modes = set(allowed_modes or {"staff"})
         best = None
         next_check_time = None
         task_waits = {}
+        candidate_tasks_considered = 0
         for task_order, (_priority, _release, _counter, task) in enumerate(self._live_pending_task_items()):
             if task.release_time > self.current_time:
                 continue
-            if self._delivery_resource_policy(task)["mode"] not in {"staff", "either"}:
+            if required_task_id and task.id != required_task_id:
                 continue
+            if self._delivery_resource_policy(task)["mode"] not in allowed_modes:
+                continue
+            candidate_tasks_considered += 1
             for staff_order, staff in enumerate(self.staff_delivery_resources):
                 if not self._staff_can_deliver_task(staff, task):
                     continue
                 earliest = max(self.current_time, staff.available_time, task.release_time)
+                # Busy, off-shift and on-break porters cannot accept work now. Find
+                # their next cheap availability boundary before doing any graph or
+                # lift route planning. Completion/turnaround events will re-run the
+                # dispatcher when a busy porter becomes free.
+                rostered_now = self._next_staff_rostered_time(staff, earliest, 0.001)
+                if rostered_now is None:
+                    task_waits.setdefault(task.id, []).append(
+                        self._staff_availability_reason(staff, earliest, None)
+                    )
+                    continue
+                if earliest > self.current_time + 1e-9 or rostered_now > self.current_time + 1e-9:
+                    next_available = max(earliest, rostered_now)
+                    next_check_time = (
+                        next_available
+                        if next_check_time is None
+                        else min(next_check_time, next_available)
+                    )
+                    if staff.available_time > self.current_time:
+                        reason = (
+                            f"{staff.id} is busy or in turnaround until "
+                            f"{self.clock.format_sim_time(staff.available_time)}"
+                        )
+                    else:
+                        reason = self._staff_availability_reason(
+                            staff, earliest, rostered_now
+                        )
+                    task_waits.setdefault(task.id, []).append(reason)
+                    continue
                 estimate = self._estimate_task_for_staff(
                     staff, task, reserve=False, start_time_override=earliest
                 )
@@ -9762,6 +9873,8 @@ class Simulation:
                 candidate = (estimate["finish_time"], task_order, staff_order, staff, task, rostered_time)
                 if best is None or candidate[:3] < best[:3]:
                     best = candidate
+            if best is not None and candidate_tasks_considered >= self.max_staff_candidate_tasks:
+                break
         for _priority, _release, _counter, task in self._live_pending_task_items():
             reasons = task_waits.get(task.id, [])
             if reasons:
@@ -9793,7 +9906,9 @@ class Simulation:
         staff.available_time = committed["finish_time"] + staff.turnaround_time_sec
         self.log_step(
             event_time=committed["task_start_time"], event_type="staff_task_assigned",
-            task_id=task.id, amr_id=staff.id, details=f"Assigned task to {staff.id}",
+            task_id=task.id, amr_id=staff.id, details=(
+                f"Assigned task to {staff.id}; {getattr(task, 'delivery_selection_reason', '')}"
+            ).rstrip("; "),
             from_location=task.pickup, to_location=task.dropoff,
             payload_name=self._payload_log_name(task.payload),
             task_duration_sec=committed["duration"],
@@ -9802,6 +9917,11 @@ class Simulation:
             start_time=committed["task_start_time"], end_time=committed["task_start_time"] + 1.0,
             status="start", person_resource=staff.resource_type, person_id=staff.id,
             people_required=1,
+            configured_delivery_mode=str(self._delivery_resource_policy(task).get("mode", "staff")),
+            selection_policy=str(self._delivery_resource_policy(task).get("selection_policy", "")),
+            selection_reason=str(getattr(task, "delivery_selection_reason", "") or ""),
+            task_release_datetime=self._format_sim_time_cached(task.release_time),
+            task_assignment_datetime=self._format_sim_time_cached(committed["task_start_time"]),
         )
         self._log_staff_delivery_segments(staff, task, committed)
         self.push_event(
@@ -9822,6 +9942,37 @@ class Simulation:
         if staff.turnaround_time_sec > 0:
             self.push_event(staff.available_time, "staff_turnaround_complete", {"staff_id": staff.id})
         return True
+
+    def _best_current_staff_estimate_for_task(self, task: Task):
+        best = None
+        for order, staff in enumerate(self.staff_delivery_resources):
+            if not self._staff_can_deliver_task(staff, task):
+                continue
+            earliest = max(self.current_time, staff.available_time, task.release_time)
+            rostered_now = self._next_staff_rostered_time(staff, earliest, 0.001)
+            if (
+                rostered_now is None
+                or earliest > self.current_time + 1e-9
+                or rostered_now > self.current_time + 1e-9
+            ):
+                continue
+            estimate = self._estimate_task_for_staff(
+                staff, task, reserve=False, start_time_override=earliest
+            )
+            if estimate is None:
+                continue
+            rostered = self._next_staff_rostered_time(staff, earliest, estimate["duration"])
+            if rostered is None or rostered > self.current_time + 1e-9:
+                continue
+            estimate = self._estimate_task_for_staff(
+                staff, task, reserve=False, start_time_override=rostered
+            )
+            if estimate is None:
+                continue
+            candidate = (estimate["finish_time"], order, staff, estimate)
+            if best is None or candidate[:2] < best[:2]:
+                best = candidate
+        return best
 
     def _try_assign_tasks(self, now: float, force_idle_return: bool = False):
         self.current_time = max(self.current_time, now)
@@ -9876,6 +10027,49 @@ class Simulation:
             self._queue_idle_return_tasks(self.current_time)
 
             choice = self._select_best_assignment()
+            either_task = None
+            amr_finish = math.inf
+            if choice is not None and not isinstance(choice[1], list):
+                candidate_task = choice[1]
+                if self._delivery_resource_policy(candidate_task)["mode"] == "either":
+                    either_task = candidate_task
+                    amr_finish = float(choice[2].get("finish_time", math.inf))
+            elif choice is None:
+                for _priority, _release, _counter, candidate_task in self._live_pending_task_items():
+                    if candidate_task.release_time <= self.current_time and self._delivery_resource_policy(candidate_task)["mode"] == "either":
+                        either_task = candidate_task
+                        break
+
+            if either_task is not None:
+                staff_choice = self._best_current_staff_estimate_for_task(either_task)
+                staff_finish = float(staff_choice[0]) if staff_choice is not None else math.inf
+                preference = self._active_delivery_selection_policy(either_task, self.current_time)
+                amr_feasible = choice is not None and choice[1] is either_task
+                staff_feasible = staff_choice is not None
+                choose_staff = False
+                if preference == "prefer_staff":
+                    choose_staff = staff_feasible
+                elif preference == "prefer_amr":
+                    choose_staff = staff_feasible and not amr_feasible
+                else:
+                    choose_staff = staff_feasible and (
+                        not amr_feasible or (staff_finish, 1) < (amr_finish, 0)
+                    )
+                if choose_staff:
+                    either_task.delivery_selection_reason = (
+                        f"policy={preference}; selected=staff; "
+                        f"staff_finish={self.clock.format_sim_time(staff_finish)}; "
+                        f"amr_finish={self.clock.format_sim_time(amr_finish) if math.isfinite(amr_finish) else 'infeasible'}"
+                    )
+                    if self._try_assign_staff_task({"either"}, either_task.id):
+                        processed_this_tick += 1
+                        continue
+                elif amr_feasible:
+                    either_task.delivery_selection_reason = (
+                        f"policy={preference}; selected=amr; "
+                        f"amr_finish={self.clock.format_sim_time(amr_finish)}; "
+                        f"staff_finish={self.clock.format_sim_time(staff_finish) if math.isfinite(staff_finish) else 'infeasible'}"
+                    )
             if choice is None:
                 range_charge_scheduled = False
                 for candidate_amr in self.amrs:
@@ -10052,7 +10246,9 @@ class Simulation:
                 event_type="task_assigned",
                 task_id=task.id,
                 amr_id=amr.id,
-                details=f"Assigned task to {amr.id}",
+                details=(
+                    f"Assigned task to {amr.id}; {getattr(task, 'delivery_selection_reason', '')}"
+                ).rstrip("; "),
                 from_location=task.pickup,
                 to_location=task.dropoff,
                 payload_name=self._payload_log_name(task.payload),
@@ -10063,6 +10259,11 @@ class Simulation:
                 start_time=start_time,
                 end_time=start_time + 1.0,
                 status="start",
+                configured_delivery_mode=str(self._delivery_resource_policy(task).get("mode", "amr")),
+                selection_policy=str(self._delivery_resource_policy(task).get("selection_policy", "")),
+                selection_reason=str(getattr(task, "delivery_selection_reason", "") or ""),
+                task_release_datetime=self._format_sim_time_cached(task.release_time),
+                task_assignment_datetime=self._format_sim_time_cached(start_time),
                 task_source=getattr(task, "task_source", ""),
                 department_id=getattr(task, "department_id", ""),
                 waste_stream=getattr(task, "waste_stream", ""),
@@ -10891,6 +11092,12 @@ class Simulation:
                 person_resource=str(event.payload.get("staff_resource_type", "") or ""),
                 person_id=str(event.payload.get("staff_id", "") or ""),
                 people_required=1 if event.payload.get("staff_id") else 0,
+                configured_delivery_mode=str(self._delivery_resource_policy(task).get("mode", "amr")),
+                selection_policy=str(self._delivery_resource_policy(task).get("selection_policy", "")),
+                selection_reason=str(getattr(task, "delivery_selection_reason", "") or ""),
+                task_release_datetime=self._format_sim_time_cached(task.release_time),
+                task_assignment_datetime=self._format_sim_time_cached(event.payload["start_time"]),
+                task_completion_datetime=self._format_sim_time_cached(event.payload["finish_time"]),
             )
 
             self.completed_task_records.append(
@@ -10909,7 +11116,7 @@ class Simulation:
                     "amr_id": event.payload["amr_id"],
                     "staff_id": str(event.payload.get("staff_id", "") or ""),
                     "staff_resource_type": str(event.payload.get("staff_resource_type", "") or ""),
-                    "delivery_resource_kind": "staff" if event.payload.get("staff_id") else "amr",
+                    "delivery_resource_kind": "porter" if event.payload.get("staff_id") else "amr",
                     "start_datetime": self.clock.format_sim_time(
                         event.payload["start_time"]
                     ),
@@ -11413,6 +11620,16 @@ class Simulation:
     @staticmethod
     def _verbose_fieldnames() -> List[str]:
         return [
+            "operating_model",
+            "delivery_resource_kind",
+            "delivery_resource_id",
+            "delivery_resource_type",
+            "configured_delivery_mode",
+            "selection_policy",
+            "selection_reason",
+            "task_release_datetime",
+            "task_assignment_datetime",
+            "task_completion_datetime",
             "amr_id",
             "task_id",
             "segment_type",
@@ -11711,6 +11928,15 @@ class Simulation:
         staff_initial_on_shift_people: int = 0,
         staff_initial_rostered_people: int = 0,
         staff_wait_for_travel_sec: float = 0.0,
+        delivery_resource_kind: str = "",
+        delivery_resource_id: str = "",
+        delivery_resource_type: str = "",
+        configured_delivery_mode: str = "",
+        selection_policy: str = "",
+        selection_reason: str = "",
+        task_release_datetime: str = "",
+        task_assignment_datetime: str = "",
+        task_completion_datetime: str = "",
     ):
         if not self.verbose:
             return
@@ -11775,6 +12001,20 @@ class Simulation:
         scenario_delay_value = max(0.0, float(segment_meta.get("scenario_delay_sec", 0.0) or 0.0))
         people_delay_value = max(0.0, float(segment_meta.get("people_delay_sec", 0.0) or 0.0))
         people_count_value = max(0, int(float(segment_meta.get("people_count", 0) or 0)))
+        # Keep amr_id for playback compatibility, but make these neutral fields
+        # authoritative for reporting and future cross-scenario comparison.
+        if not delivery_resource_kind and amr_id:
+            if amr_id in getattr(self, "staff_delivery_resources_by_id", {}):
+                delivery_resource_kind = "porter"
+            elif amr_id in getattr(self, "amrs_by_id", {}):
+                delivery_resource_kind = "amr"
+        if not delivery_resource_id and delivery_resource_kind:
+            delivery_resource_id = amr_id or person_id
+        if not delivery_resource_type and delivery_resource_kind == "porter":
+            staff_resource = getattr(self, "staff_delivery_resources_by_id", {}).get(delivery_resource_id)
+            delivery_resource_type = str(getattr(staff_resource, "resource_type", "") or person_resource)
+        if not delivery_resource_type and delivery_resource_kind == "amr":
+            delivery_resource_type = str(delivery_resource_id or "").rsplit("-", 1)[0]
         if amr_id:
             try:
                 current_amr = self.amrs_by_id.get(amr_id)
@@ -11846,6 +12086,16 @@ class Simulation:
 
         self._append_verbose_row(
             {
+                "operating_model": self.delivery_operating_model,
+                "delivery_resource_kind": delivery_resource_kind,
+                "delivery_resource_id": delivery_resource_id,
+                "delivery_resource_type": delivery_resource_type,
+                "configured_delivery_mode": configured_delivery_mode,
+                "selection_policy": selection_policy,
+                "selection_reason": selection_reason,
+                "task_release_datetime": task_release_datetime,
+                "task_assignment_datetime": task_assignment_datetime,
+                "task_completion_datetime": task_completion_datetime,
                 # Existing schema
                 "sim_time_sec": round(event_time, 3),
                 "sim_datetime": self._format_sim_time_cached(event_time),
