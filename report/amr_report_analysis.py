@@ -3666,6 +3666,9 @@ def analyse(
     payload_col = cols["payload"]
     distance_col = cols["distance"]
     energy_col = cols["energy"]
+    resource_kind_col = "delivery_resource_kind" if "delivery_resource_kind" in df.columns else None
+    resource_id_col = "delivery_resource_id" if "delivery_resource_id" in df.columns else None
+    resource_type_col = "delivery_resource_type" if "delivery_resource_type" in df.columns else None
 
     df["_event_text"] = df[event_col].astype(str) if event_col else ""
     df["_segment_text"] = df[seg_col].astype(str) if seg_col else ""
@@ -3781,6 +3784,24 @@ def analyse(
         duration_s = time_delta_seconds(start, end, ctx.has_datetime)
         wait_s = float(pd.to_numeric(g["_wait_s"], errors="coerce").fillna(0).sum())
         amr = g[amr_col].dropna().iloc[0] if g[amr_col].notna().any() else "-"
+        resource_kind = ""
+        if resource_kind_col:
+            values = [str(v).strip().lower() for v in g[resource_kind_col].dropna() if str(v).strip()]
+            resource_kind = values[0] if values else ""
+        if not resource_kind:
+            resource_kind = "porter" if g["_event_text"].str.startswith("staff_").any() else (
+                "amr" if is_physical_amr_id(amr) else "unassigned"
+            )
+        resource_id = safe_text(amr)
+        if resource_id_col:
+            values = [str(v).strip() for v in g[resource_id_col].dropna() if str(v).strip()]
+            if values:
+                resource_id = values[0]
+        resource_type = "-"
+        if resource_type_col:
+            values = [str(v).strip() for v in g[resource_type_col].dropna() if str(v).strip()]
+            if values:
+                resource_type = values[0]
         origin = choose_task_endpoint(g, ctx, from_col, to_col, "from")
         destination = choose_task_endpoint(g, ctx, from_col, to_col, "to")
         multi_stop_leg_override = multi_stop_task_leg_overrides.get(str(task_id))
@@ -3861,6 +3882,9 @@ def analyse(
         task_rows.append(
             {
                 "amr": safe_text(amr),
+                "resource_kind": resource_kind,
+                "resource_id": resource_id,
+                "resource_type": resource_type,
                 "task_id": safe_text(task_id),
                 "outcome": outcome,
                 "failure_reason": failure_reason,
@@ -3921,9 +3945,9 @@ def analyse(
     # Fleet statistics must use physical AMRs only. Pending generated tasks,
     # staff-handling rows and other task records without an AMR are represented
     # by the placeholder ``-`` and previously inflated the observed fleet by one.
-    physical_amr_task_mask = tasks["amr"].map(is_physical_amr_id)
+    physical_amr_task_mask = tasks["resource_kind"].eq("amr")
     fleet_tasks = tasks.loc[physical_amr_task_mask].copy()
-    tasks_without_physical_amr = int((~physical_amr_task_mask).sum())
+    tasks_without_delivery_resource = int(tasks["resource_kind"].eq("unassigned").sum())
 
     amr_busy_intervals_by_amr, amr_route_summary = build_amr_busy_intervals(
         df, ctx, amr_col
@@ -4004,6 +4028,53 @@ def analyse(
         .fillna(0)
         .round(1)
     )
+
+    porter_tasks = tasks[tasks["resource_kind"].eq("porter")].copy()
+    porter_summary = (
+        porter_tasks.groupby(["resource_id", "resource_type"], dropna=False)
+        .agg(
+            tasks_total=("task_id", "count"),
+            tasks_completed=("outcome", lambda s: int((s == "completed").sum())),
+            tasks_failed=("outcome", lambda s: int((s == "failed").sum())),
+            total_delivery_time_s=("duration_s", "sum"),
+            total_wait_s=("wait_s", "sum"),
+            avg_task_time_s=("duration_s", "mean"),
+            total_distance_m=("distance_m", "sum"),
+        ).reset_index()
+    )
+    if not porter_summary.empty:
+        porter_summary["utilisation_pct"] = (
+            porter_summary["total_delivery_time_s"] / horizon_s * 100
+        ).round(1)
+
+    allocation = (
+        tasks[tasks["resource_kind"].isin(["amr", "porter"])]
+        .groupby("resource_kind")
+        .agg(
+            tasks=("task_id", "count"),
+            completed=("outcome", lambda s: int((s == "completed").sum())),
+            failed=("outcome", lambda s: int((s == "failed").sum())),
+            pending=("outcome", lambda s: int((s == "incomplete").sum())),
+        ).reset_index()
+    )
+    if not allocation.empty:
+        allocation["allocation_pct"] = (allocation["tasks"] / allocation["tasks"].sum() * 100).round(1)
+
+    operating_model_key = "amr_only"
+    if "operating_model" in df.columns:
+        model_values = [str(v).strip().lower() for v in df["operating_model"].dropna() if str(v).strip()]
+        if model_values:
+            operating_model_key = model_values[0]
+    operating_model_labels = {
+        "amr_only": "AMR only",
+        "porter_only": "Porter only",
+        "hybrid_amr_preference": "Hybrid (AMR preference)",
+        "hybrid_porter_preference": "Hybrid (Porter preference)",
+    }
+    operating_model = pd.DataFrame([{
+        "key": operating_model_key,
+        "label": operating_model_labels.get(operating_model_key, operating_model_key.replace("_", " ").title()),
+    }])
 
     # How many recharges did the AMR undergo - battery wear
 
@@ -4528,13 +4599,14 @@ def analyse(
     )
 
     summary_rows = [
+            {"metric": "Delivery operating model", "value": operating_model.iloc[0]["label"]},
             {"metric": "Simulation start", "value": fmt_ts(t0, ctx.has_datetime)},
             {"metric": "Simulation finish", "value": fmt_ts(t1, ctx.has_datetime)},
             {"metric": "Simulation duration", "value": fmt_duration(horizon_s)},
             {"metric": "AMRs observed", "value": f"{active_amrs}"},
             {
-                "metric": "Tasks without an AMR assignment",
-                "value": f"{tasks_without_physical_amr}",
+                "metric": "Tasks without a delivery resource assignment",
+                "value": f"{tasks_without_delivery_resource}",
             },
             {"metric": "Tasks total", "value": f"{len(tasks)}"},
             {"metric": "Tasks completed", "value": f"{len(completed)}"},
@@ -4566,7 +4638,14 @@ def analyse(
             {"metric": "Recommended AMRs", "value": f"{recommended_amrs}"},
             {"metric": "Recommended lifts", "value": f"{recommended_lifts}"},
         ]
-    if configured_amrs is not None:
+    if operating_model_key == "porter_only":
+        amr_only_metrics = {
+            "AMRs observed", "AMR routes observed", "Total AMR route time",
+            "AMR workload model requirement", "AMR 5-minute peak demand",
+            "Recommended AMRs",
+        }
+        summary_rows = [row for row in summary_rows if row.get("metric") not in amr_only_metrics]
+    if configured_amrs is not None and operating_model_key != "porter_only":
         summary_rows.insert(3, {"metric": "AMRs configured", "value": f"{configured_amrs}"})
     summary = pd.DataFrame(summary_rows)
 
@@ -4799,6 +4878,9 @@ def analyse(
         "staff_hours_summary": staff_hours_summary,
         "staff_handling_summary": staff_handling_summary,
         "amr_summary": amr_summary,
+        "porter_summary": porter_summary,
+        "delivery_allocation_summary": allocation,
+        "operating_model": operating_model,
         "amr_route_summary": amr_route_summary,
         "utilisation_summary": amr_utilisation,
         "lift_summary": lift_summary,

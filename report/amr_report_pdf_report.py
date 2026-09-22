@@ -57,6 +57,7 @@ REPORT_SECTIONS = [
     ("front_summary", "Executive summary"),
     ("scenario_impact", "Scenario impact and resilience"),
     ("method", "Method"),
+    ("porter_delivery", "Porter delivery resources"),
     ("amr_list", "AMR list"),
     ("amr_fleet", "AMR fleet summary"),
     ("amr_utilisation", "AMR utilisation and recharge"),
@@ -85,6 +86,7 @@ REPORT_SECTION_PAGE_TEMPLATES = {
     "staff_handling": "standard",
     "staff_timetable": "a3_landscape",
     "method": "standard",
+    "porter_delivery": "landscape",
     "amr_list": "landscape",
     "amr_fleet": "landscape",
     "amr_utilisation": "landscape",
@@ -1474,6 +1476,15 @@ def build_report(
 ) -> None:
     styles = make_styles()
     selected_section_order = normalise_report_sections(report_sections)
+    operating_model_df = results.get("operating_model", pd.DataFrame())
+    operating_model_key = (
+        str(operating_model_df.iloc[0].get("key", "amr_only"))
+        if not operating_model_df.empty else "amr_only"
+    )
+    if operating_model_key == "porter_only":
+        selected_section_order = [x for x in selected_section_order if x not in {"amr_list", "amr_fleet", "amr_utilisation"}]
+    elif operating_model_key == "amr_only":
+        selected_section_order = [x for x in selected_section_order if x != "porter_delivery"]
     selected_section_ids = set(selected_section_order)
     first_template_id = REPORT_SECTION_PAGE_TEMPLATES.get(
         selected_section_order[0] if selected_section_order else "front_summary",
@@ -1487,7 +1498,7 @@ def build_report(
         rightMargin=15 * mm,
         topMargin=18 * mm,
         bottomMargin=15 * mm,
-        title="AMR Simulation Performance Report",
+        title="Hospital Logistics Simulation Performance Report",
         author="",
     )
 
@@ -1503,7 +1514,7 @@ def build_report(
     # --- START front page ---
     story.section("front_summary")
     story += [
-        Paragraph("AMR Simulation Performance Report", styles["ReportTitle"]),
+        Paragraph("Hospital Logistics Simulation Performance Report", styles["ReportTitle"]),
         Paragraph(f"Source CSV: {csv_path.name}", styles["ReportSub"]),
         Paragraph(
             "This report summarises task completion, wait time, lift usage, and resource recommendations derived from the simulation event log.",
@@ -1777,8 +1788,33 @@ def build_report(
 
     # --- START AMR List Summary ---
 
+    story.section("porter_delivery")
+    story += [Paragraph("Porter delivery resources", styles["Section"])]
+    porter_df = results.get("porter_summary", pd.DataFrame()).copy()
+    allocation_df = results.get("delivery_allocation_summary", pd.DataFrame()).copy()
+    if operating_model_key.startswith("hybrid") and not allocation_df.empty:
+        story += [
+            Paragraph("Task allocation by delivery method", styles["Heading2"]),
+            Paragraph("This table reports allocation only; it does not compare AMR and porter performance within the hybrid run.", styles["BodyText"]),
+            table_from_df(allocation_df.rename(columns={"resource_kind": "Resource", "tasks": "Tasks", "completed": "Completed", "failed": "Failed", "pending": "Pending", "allocation_pct": "Allocation %"}), [35 * mm, 25 * mm, 25 * mm, 25 * mm, 25 * mm, 28 * mm], styles),
+            Spacer(1, 8),
+        ]
+    if porter_df.empty:
+        story.append(Paragraph("No porter delivery activity was recorded.", styles["BodyText"]))
+    else:
+        for column in ("total_delivery_time_s", "total_wait_s", "avg_task_time_s"):
+            porter_df[column] = porter_df[column].map(lambda x: fmt_duration(x) if isinstance(x, (int, float)) else x)
+        porter_df = porter_df.rename(columns={
+            "resource_id": "Porter ID", "resource_type": "Porter type", "tasks_total": "Tasks",
+            "tasks_completed": "Completed", "tasks_failed": "Failed", "total_delivery_time_s": "Delivery time",
+            "total_wait_s": "Wait time", "avg_task_time_s": "Avg task", "total_distance_m": "Distance (m)",
+            "utilisation_pct": "Utilisation %",
+        })
+        story.append(table_from_df(porter_df, [35 * mm, 30 * mm, 18 * mm, 20 * mm, 18 * mm, 28 * mm, 25 * mm, 25 * mm, 24 * mm, 24 * mm], styles))
+    story += [NextPageTemplate("landscape"), PageBreak()]
+
     amr_list_df = results["amr_list"].copy()
-    amr_list_df = amr_list_df.drop(columns=["payload_capacity_size_units"])
+    amr_list_df = amr_list_df.drop(columns=["payload_capacity_size_units"], errors="ignore")
     story.section("amr_list")
     story += [Spacer(1, 8), Paragraph("AMR list", styles["Section"])]
 
