@@ -59,10 +59,11 @@ Scenario and run names should describe the modelling assumption.
 Useful names include:
 
 - `Baseline_All_AMR`
+- `Baseline_All_Porter`
 - `CaseCarts_CleanDirtyRoutes`
 - `Waste_Lift5Only`
 - `Pharmacy_HigherDemand`
-- `Hybrid_PorterFuture`
+- `Hybrid_PorterPreference`
 
 Avoid names such as `test1` or `new version`. They become hard to interpret
 later.
@@ -75,6 +76,7 @@ For each scenario, record:
 - what changed from the baseline
 - which workflows are included
 - which AMR fleet assumptions are used
+- which porter roster and delivery-resource assumptions are used
 - which route and lift assumptions are used
 - whether task generation is enabled
 - any known limitations
@@ -120,18 +122,26 @@ or congestion.
 
 ## AMR, Porter, And Hybrid Comparisons
 
-Future porter-led transport functionality will allow richer comparison of:
+The simulator supports comparison of:
 
 - full AMR models
 - full porter-led models
 - hybrid models
 
-When preparing for those comparisons, keep the operational demand consistent.
-The comparison should usually change the logistics solution, not the hospital
-demand being served.
+Keep the operational demand consistent. The comparison should usually change
+the logistics solution, not the hospital demand being served. Use staff-delivery
+resources for porter transport; staff-assisted handling represents additional
+endpoint support and is not a substitute.
 
-For now, staff-assisted handling should not be used as a substitute for
-porter-led transport.
+Check that each scenario uses the same simulation dates, generated-flow rules,
+payload definitions, return logic and route graph. Return tasks can make total
+task counts differ when one scenario completes more initiating work, so compare
+the common demand population as well as aggregate totals.
+
+Treat current numerical differences as illustrative until material assumptions
+have been locked down. In particular, validate porter response delay, rosters,
+breaks, handling and turnaround, AMR charging and speeds, and the hybrid
+selection policy.
 
 ## Lift And Bottleneck Comparisons
 
@@ -142,7 +152,7 @@ Useful scenario variants include:
 - all flows sharing lifts
 - selected flows restricted to particular lifts
 - clean and dirty flows separated
-- AMRs sharing lifts with future porter-led flows
+- AMRs sharing lifts with porter-led flows
 - AMRs having dedicated lift access
 
 Check not only total lift use, but also waiting time, peak periods, and whether
@@ -201,7 +211,10 @@ Review:
 
 - run status
 - failed tasks
+- pending or unassigned tasks
 - AMR utilisation
+- porter workload and roster effects
+- hybrid allocation by delivery method
 - lift use and waits
 - generated task counts
 - staff handling effects, where relevant
@@ -236,6 +249,12 @@ Check start and end dates before interpreting output differences.
 
 Check enabled categories, department settings, active days, and generation
 modes.
+
+**The hybrid allocation does not match the stated preference**
+
+A preference is not exclusive. Check availability, compatibility, roster
+windows, charging and type restrictions. The fallback resource may be selected
+when the preferred resource is infeasible.
 
 ## Modelling Notes
 

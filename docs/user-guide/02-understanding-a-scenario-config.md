@@ -20,7 +20,7 @@ The main sections are:
 - departments and locations
 - route graph nodes and edges
 - lifts
-- AMR fleet
+- delivery resources: AMR and staff types
 - payloads
 - route profiles
 - manual tasks
@@ -51,7 +51,8 @@ A location normally has:
 - x/y coordinates
 - optional inventory spaces
 
-Locations are used by tasks, departments, AMRs, and route graph connections.
+Locations are used by tasks, departments, delivery resources, and route graph
+connections.
 
 ## Departments
 
@@ -81,9 +82,9 @@ It contains:
 - edges: connections between nodes
 
 A node is often used at a junction between edges. Nodes typically mark places
-where a robot may change direction, enter a side corridor, access a room, or
-enter a lift. Some nodes may also act as endpoints or connection points for
-locations.
+where a delivery resource may change direction, enter a side corridor, access a
+room, or enter a lift. Some nodes may also act as endpoints or connection
+points for locations.
 
 The route graph is drawn over the floor layouts in the editor. The simulator
 uses this graph to calculate routes and distances.
@@ -101,9 +102,20 @@ Lift assumptions may affect:
 - which routes are possible
 - waiting time
 - congestion
-- comparison between AMR and future porter-led options
+- comparison between AMR, porter and hybrid options
 
-## AMR Fleet
+## Delivery Resources
+
+The editor's **Delivery Resources** screen holds AMR and staff resource types in
+one list. The scenario can contain either type or both.
+
+The `simulation.delivery_operating_model` value labels the intended scenario in
+outputs and reports. Supported labels are AMR only, porter only, hybrid with AMR
+preference and hybrid with porter preference. This label describes the scenario;
+the policy on each task or generated flow controls actual eligibility and
+selection.
+
+### AMR Fleet
 
 The AMR fleet defines robot types and quantities.
 
@@ -120,6 +132,33 @@ An AMR type can include:
 
 The total AMR fleet is the sum of AMR quantities. AMR types are the distinct
 configured robot definitions.
+
+### Staff-Delivery Resources
+
+A staff-delivery type can include:
+
+- quantity and generated individual IDs
+- walking speed
+- base or start location
+- payload mass and dimensional capacity
+- allowed payload types and required capabilities
+- working days, shift start and shift end
+- one or more contractual breaks
+- turnaround time after a completed delivery
+- minimum and maximum task-acceptance delay
+- whether response delay applies only when away from base
+
+Porter pickup and drop-off use the scenario's configured building
+load/unload time rather than a porter-specific handling-time field.
+
+Breaks are separate daily time windows. A task is assigned only if the porter
+can complete it within a valid roster window without crossing a break or shift
+end.
+
+Capabilities are explicit resource tags used by a delivery policy. Payload
+compatibility is configured separately through allowed payload types, weight and
+dimensions. A capability can describe a requirement such as controlled-drug
+authorisation or a handling competency; it is not automatically a payload type.
 
 ## Payloads
 
@@ -153,6 +192,8 @@ A task usually defines:
 - release time
 - priority
 - optional route profile
+- delivery-resource mode and optional eligibility restrictions
+- selection policy and optional day/time preference windows
 
 Manual tasks are useful for simple scenarios and for testing specific flows.
 
@@ -173,13 +214,25 @@ Task generation is powerful, but it is also more complex than manual task
 definition. It should be introduced only after the basic config structure is
 understood.
 
+Manual tasks and generated categories use the same delivery-resource policy:
+
+- `amr` restricts the flow to compatible AMRs;
+- `staff` restricts the flow to compatible staff-delivery resources;
+- `either` permits both and applies a selection preference.
+
+An `either` flow can use `earliest_completion`, `prefer_amr` or `prefer_staff`.
+Preference windows can change that rule by day and time. With no window, the
+default applies 24 hours a day, seven days a week. A preference is not an
+exclusive restriction: the dispatcher can fall back to the other permitted
+resource when the preferred resource is unavailable or incompatible.
+
 ## What The Launcher Summary Shows
 
 The launcher shows a compact summary for each managed config:
 
 - locations and departments
 - floor layout coverage
-- AMR fleet and AMR types
+- delivery operating model, AMR fleet and staff-resource types
 - payloads
 - tasks
 - route profiles
@@ -196,7 +249,8 @@ Before changing a config, confirm:
 - it is a launcher-managed copy, not the only original
 - the floor layouts are available
 - the route graph appears complete
-- the AMR fleet is plausible
+- AMR and porter quantities, rosters and speeds are plausible
+- resource compatibility and selection policies match the intended workflows
 - the payloads match the intended workflows
 - manual and generated tasks are not being confused
 

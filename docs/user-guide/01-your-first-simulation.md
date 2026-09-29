@@ -11,7 +11,7 @@ The aim is to become familiar with the basic workflow before editing a scenario.
 
 You need:
 
-- the AMR Simulator launcher open
+- the simulator launcher open
 - at least one scenario config available to import
 - the required floor layout files available on the computer
 
@@ -37,15 +37,16 @@ Check that the broad counts look sensible:
 
 - locations and departments
 - floor layouts
-- AMR fleet and AMR types
+- delivery-resource operating model
+- AMR fleet and staff-delivery resource types
 - payloads
 - tasks
 - route profiles
 - graph nodes and edges
 
 These figures do not prove that the config is correct, but they help identify
-obvious mistakes. For example, a config with no floor layouts, no AMRs, or no
-graph edges is unlikely to run as intended.
+obvious mistakes. For example, a config with no floor layouts, no permitted
+delivery resource, or no graph edges is unlikely to run as intended.
 
 ## Step 3: Run The Selected Config
 
@@ -93,6 +94,9 @@ Select **Visualise** for the completed run.
 The launcher opens the visualiser with the run config and simulation CSV already
 selected. This allows you to inspect movement against the hospital layout.
 
+The resource selector can follow either an AMR or an individual porter when the
+run contains those movements.
+
 ## What To Check
 
 For a first simulation, check:
@@ -101,6 +105,7 @@ For a first simulation, check:
 - the report opens without error
 - the visualiser opens the expected layout
 - the simulated routes look plausible
+- the expected AMR, porter or hybrid resources appear
 - failed tasks, if any, are understood
 
 ## Common Problems
@@ -127,5 +132,7 @@ Check that the config refers to valid DXF floor layout files.
 
 A successful run only means that the simulator could execute the scenario. It
 does not prove that the scenario reflects real operations. Before relying on
-results, review the config assumptions, route graph, task definitions, and
-outputs.
+results, review the config assumptions, route graph, task definitions, resource
+availability, dispatch policy and outputs. Numerical differences between AMR,
+porter and hybrid runs should be treated as illustrative until their material
+assumptions have been validated.

@@ -36,6 +36,7 @@ The implementation currently includes:
 - waste-related generation
 - optional return or exchange tasks
 - staff-assisted handling settings
+- AMR, porter or mixed delivery-resource policies
 
 Not every scenario uses every mode.
 
@@ -54,7 +55,8 @@ Common categories include:
 - SSD or sterile services
 
 Categories can define payloads, pickup and dropoff assumptions, schedules,
-timeframes, route profiles, and staff-handling settings.
+timeframes, route profiles, delivery-resource policies and staff-handling
+settings.
 
 ## Department-Based Generation
 
@@ -122,11 +124,28 @@ task.
 
 Task generation categories can include staff-related fields.
 
-These appear to model staff availability for payload handling and related travel
-at pickup or dropoff locations. They should not be interpreted as a complete
-porter-led transport model.
+These model staff availability for payload handling and related local travel at
+pickup or dropoff locations. They are separate from a staff-delivery resource
+that performs the full porter journey.
 
 Staff-assisted handling is covered in more detail in a later section.
+
+## Delivery-Resource Selection
+
+Each generated category can set the same delivery policy used by a manual task:
+
+- `amr` for compatible AMRs only;
+- `staff` for compatible staff-delivery resources only;
+- `either` for both resource classes.
+
+For `either`, the default can be `earliest_completion`, `prefer_amr` or
+`prefer_staff`. Optional preference windows can apply a different rule on
+selected days and between selected times. Leaving the schedule empty makes the
+default apply continuously.
+
+Eligibility can also be narrowed by AMR type, staff type or required
+capabilities. Payload mass, dimensions and allowed payload types are checked in
+addition to those explicit restrictions.
 
 ## Step 1: Check Whether Task Generation Is Enabled
 
@@ -146,6 +165,7 @@ For each active category, check:
 - departments used
 - schedule or timeframe
 - route profile
+- delivery-resource mode, selection preference and eligibility restrictions
 - staff requirements
 - return or exchange behaviour
 
@@ -190,7 +210,7 @@ days, and staff-hour spreading.
 **Generated tasks fail**
 
 Check payload compatibility, pickup/dropoff locations, route graph connections,
-and route profiles.
+route profiles, resource eligibility and porter roster windows.
 
 ## Modelling Notes
 

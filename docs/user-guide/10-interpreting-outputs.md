@@ -48,6 +48,7 @@ The simulation step CSV is the detailed event output from the simulator.
 It may contain rows for:
 
 - AMR movement
+- porter movement
 - task assignment
 - pickup and dropoff events
 - lift transfer and waiting
@@ -62,6 +63,11 @@ This file is detailed and can be large. The report and visualiser provide more
 accessible views of the run, while the CSV remains the underlying event record
 for investigation.
 
+Delivery events include fields that identify the configured delivery mode,
+selected resource kind, resource ID and type, selection policy and selection
+reason. These fields make it possible to separate AMR and porter results without
+maintaining different event datasets.
+
 ## Visualiser CSV
 
 The visualiser CSV is used by the visualiser module to replay or display the
@@ -70,10 +76,13 @@ run.
 It supports checks of:
 
 - whether movement looks plausible
-- which routes AMRs used
+- which routes AMRs and porters used
 - whether lifts were used as expected
 - whether clean and dirty flows appear separated
-- whether AMRs travel to the intended departments or locations
+- whether both resource classes travel to the intended departments or locations
+
+The follow-resource selector includes individual AMRs and porters observed in
+the playback data.
 
 The visualiser is especially useful for spotting route-graph problems.
 
@@ -86,7 +95,7 @@ A failed task can indicate:
 - unknown pickup or dropoff location
 - missing graph connection
 - no route under the selected route profile
-- incompatible payload and AMR
+- incompatible payload and permitted delivery resource
 - location capacity issue
 - missing physical container
 - resource availability problem
@@ -101,6 +110,9 @@ The report module summarises key outputs from a completed run.
 Depending on available data, report analysis can include:
 
 - overall simulation summary
+- delivery operating model
+- porter delivery-resource summary
+- hybrid allocation by delivery method
 - AMR utilisation
 - AMR route summary
 - lift summary
@@ -118,6 +130,24 @@ outputs remain available where specific events need to be traced.
 The following sections describe analysis that may appear inside the Report PDF.
 They are not separate output files unless a future reporting workflow exports
 them separately.
+
+Report sections depend on the operating model. A porter-only report omits AMR
+fleet and recharge sections. An AMR-only report omits the porter-delivery
+section. A hybrid report includes both and shows task allocation by delivery
+method.
+
+## Report Section: Porter Delivery Resources
+
+The porter section can show tasks, completion, failure, delivery time, wait time,
+average task time, distance and utilisation for each individual porter.
+
+Porter utilisation is currently calculated against the full simulation horizon,
+not rostered working time. It should therefore not be interpreted as a workforce
+productivity measure without further adjustment.
+
+In a hybrid report, the allocation table states how much work was assigned to
+AMRs and porters. It does not compare like-for-like performance: each resource
+class may have handled different flows, payloads, times or routes.
 
 ## Report Section: AMR Utilisation
 
@@ -184,8 +214,8 @@ It can show:
 - wait time for staff availability
 - shift pattern effects
 
-This output should be interpreted as staff-assisted handling, not porter-led
-transport.
+This output should be interpreted as staff-assisted endpoint handling. Porter
+transport is reported separately under delivery resources.
 
 ## Report Section: Location Capacity And Inventory
 
@@ -241,7 +271,9 @@ This catches many problems that are hard to see in tables.
 The report presents:
 
 - overall task performance
+- delivery operating model and resource allocation
 - AMR workload
+- porter delivery workload
 - lift demand
 - generated task demand
 - staff and capacity constraints
@@ -269,6 +301,17 @@ important exceptions.
 The issue may be route feasibility, payload compatibility, task timing, or
 location capacity rather than fleet size.
 
+**Porter utilisation looks low**
+
+The percentage uses the full scenario horizon, including off-shift time. Review
+the roster and individual delivery time before drawing a staffing conclusion.
+
+**A hybrid report appears to show one resource is faster**
+
+Do not treat within-run AMR and porter averages as a controlled comparison unless
+the resources served equivalent flows. Use matched scenario runs and validated
+assumptions for comparative conclusions.
+
 **Lift utilisation is modest but waits are high**
 
 Demand may be concentrated into short peaks. Review lift usage by time of day.
@@ -281,7 +324,9 @@ generation modes.
 ## Modelling Notes
 
 Simulation outputs are evidence for a scenario under a set of assumptions. They
-are not proof that real-world operations will behave exactly the same way.
+are not proof that real-world operations will behave exactly the same way. Until
+material assumptions are validated, differences between AMR, porter and hybrid
+runs should be described as illustrative model behaviour.
 
 The strongest conclusions come from comparing well-designed scenarios and
 checking whether the same pattern appears across several runs.

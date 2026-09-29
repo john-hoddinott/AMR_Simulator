@@ -1,7 +1,7 @@
 # Delivery Resources regression scenarios
 
-These deliberately small scenarios provide quick manual checkpoints while the
-Delivery Resources and porter-led transport functionality is developed.
+These deliberately small scenarios provide quick manual checkpoints for the
+Delivery Resources and porter-led transport functionality.
 
 Run all commands from the repository root:
 
@@ -119,6 +119,16 @@ New-Item -ItemType Directory -Force examples\delivery_resources\outputs\03_staff
 `04_either_dispatch.json` is a 25-minute mixed-resource checkpoint. It covers
 earliest-completion selection, scheduled AMR and staff preferences, and fallback
 when the preferred resource cannot carry the payload.
+
+Expected assignments are:
+
+- `EITHER-EARLIEST` -> `PORTER-MIXED-1`;
+- `EITHER-PREFER-AMR` -> `AMR-MIXED-1`;
+- `EITHER-PREFER-STAFF` -> `PORTER-MIXED-1`;
+- `STAFF-PREFERENCE-FALLS-BACK-TO-AMR` -> `AMR-MIXED-1`;
+- `AMR-PREFERENCE-FALLS-BACK-TO-STAFF` -> `PORTER-MIXED-1`.
+
+All five named tasks should complete with no failed or pending task.
 
 ```powershell
 New-Item -ItemType Directory -Force examples\delivery_resources\outputs\04_either_dispatch

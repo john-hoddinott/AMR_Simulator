@@ -15,7 +15,8 @@ Manual tasks are useful when you want to:
 
 - test whether two locations are connected by the route graph
 - model a small number of known journeys
-- confirm that an AMR type can carry a payload
+- confirm that an AMR or staff resource can carry a payload
+- test AMR-only, staff-only or `either` assignment
 - check route profiles or lift choices
 - create a simple demonstration before using task generation
 
@@ -26,8 +27,8 @@ workloads. For that, task generation is usually a better long-term approach.
 
 **Payload**
 
-The thing being moved. The payload must be compatible with at least one AMR type
-if the task is to be completed by the fleet.
+The thing being moved. The payload must be compatible with at least one resource
+permitted by the task's delivery policy.
 
 **Pickup location**
 
@@ -49,6 +50,12 @@ before the simulation starts may be available immediately.
 An optional routing constraint. For example, a task may be limited to a clean or
 dirty route profile.
 
+**Delivery resource**
+
+The policy that allows `amr`, `staff` or `either`. For `either`, the task can
+select the earliest estimated completion, prefer AMR or prefer staff. Optional
+restrictions can identify eligible AMR types, staff types and capabilities.
+
 ## Step 1: Start From A Working Config
 
 Use a config that already:
@@ -56,7 +63,7 @@ Use a config that already:
 - opens in the editor
 - has floor layouts
 - has a connected route graph
-- has at least one AMR type
+- has at least one delivery resource of the type being tested
 - has at least one payload type
 
 It is safer to make a copy of a working config than to create a full hospital
@@ -76,17 +83,18 @@ In the editor, check that both locations:
 If a location is not connected to the graph, the simulator may be unable to find
 a route.
 
-## Step 3: Check The Payload And AMR
+## Step 3: Check The Payload And Delivery Resource
 
 Choose the payload for the task.
 
 Check:
 
 - the payload dimensions and mass are plausible
-- at least one AMR type can carry it
-- the AMR fleet has enough quantity for the scenario being tested
+- at least one permitted AMR or staff type can carry it
+- the permitted fleet or roster has enough quantity for the test
+- any required capability is present on an eligible resource
 
-For early testing, use a simple payload and a known compatible AMR type.
+For early testing, use a simple payload and a known compatible resource type.
 
 ## Step 4: Add The Task
 
@@ -99,6 +107,8 @@ Create a manual task with:
 - release time
 - priority
 - route profile, if required
+- delivery-resource mode
+- selection policy, eligibility restrictions and preference windows, if needed
 
 Use a small number of tasks at first. One or two tasks are enough to check
 connectivity and routing.
@@ -117,7 +127,7 @@ After the run completes:
 - check the run status
 - generate a report if needed
 - open the visualiser
-- confirm that the AMR follows a plausible route
+- confirm that the assigned AMR or porter follows a plausible route
 - check whether the task completed or failed
 
 The visualiser is especially useful for simple manual tasks because the expected
@@ -129,7 +139,8 @@ For each manual task, check:
 
 - pickup and dropoff names are correct
 - the payload exists
-- the AMR fleet can carry the payload
+- a permitted delivery resource can carry the payload
+- the selected resource complies with type and capability restrictions
 - a route exists between pickup and dropoff
 - any route profile still allows a valid route
 - the release time is within the simulation period
@@ -141,15 +152,22 @@ For each manual task, check:
 The pickup or dropoff may be unknown, disconnected, or incompatible with the
 route graph.
 
-**The AMR takes an unexpected route**
+**The delivery resource takes an unexpected route**
 
 Check route profiles, lift restrictions, and graph edges. The simulator follows
 the graph, not the corridor geometry shown in the DXF.
 
-**No AMR takes the task**
+**No delivery resource takes the task**
 
-The payload may not be compatible with the AMR fleet, or all compatible AMRs may
-be unavailable.
+The task may permit the wrong resource mode, the payload or capability may be
+incompatible, or every compatible resource may be busy, off shift, on a break or
+unable to finish within its roster window.
+
+**The preferred resource does not take an `either` task**
+
+A preference is not a guarantee. Check whether the preferred resource was
+available and compatible at the release time. The dispatcher can fall back to
+the other permitted resource.
 
 **The run includes more activity than expected**
 

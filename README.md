@@ -1,190 +1,124 @@
-# Autonomous Mobile Robot Simulator
+# Hospital Logistics Simulator
 
 ***Project licensed under AGPL.***
 
-This script simulates paths taken by autonomous mobile robots around a facility to deliver payloads to destinations.
+This project models the movement of hospital logistics payloads by Automated
+Mobile Robots (AMRs), porters, or a hybrid of both. It uses a configured route
+graph, locations and lifts to simulate delivery tasks, resource availability,
+payload compatibility, waiting, charging, staff rosters and shared
+infrastructure use.
 
-This uses a graph per floor level and lifts to naviagte the internals of a building.
+The model is intended for scenario comparison and decision support. Results are
+only as reliable as the demand, routing, resource and operational assumptions in
+the configuration.
 
-The graph nodes and edges are ***explictly*** defined in the json file.
+## Main applications
 
-# Getting Started
+- **Launcher** - manages scenario configs, runs, reports and visualisation.
+- **Editor** - edits the hospital layout, routes, demand and delivery resources.
+- **Simulator** - executes a scenario and writes detailed event outputs.
+- **Visualiser** - replays AMR and porter movement over the hospital layout.
+- **Report generator** - summarises the configured operating model and results.
 
-```
-    python simulator.py --write-example your_file_name.json
-    python simulator.py --config your_file_name.json --verbose --interactive
+The launcher is the recommended entry point:
 
-    ^C to quit and save .csv default name = "simulation_steps.csv"
-    Use --verbose-csv path_to_file.csv to name file
-```
-
-## Defining the simulation parameters
-```
-"simulation": {
-    "start_datetime": "2026-01-01T08:00:00", # start time of the simulation
-    "tick_rate": 120.0 # does nothing currently for future when GUI is implemented
-  },
-```
-
-## Defining the building
-
-```
-  "building": {
-    "load_unload_time_sec": 20.0, # how long it takes to drop a payload off
-    "floor_height_m": 4.0, # how tall is each floor
-    "charge_location": "Stores" # where do you charge the robots up must be a defined location
-  },
+```powershell
+python amr_launcher.py
 ```
 
-## Defining Locations
+The individual tools can also be run directly. See the
+[user guide](docs/user-guide/README.md) for the normal workflow.
 
-`X` is distance from datum in metres
+## Delivery operating models
 
-`Y` is distance from datum in metres
+A scenario can represent:
 
-```
-"locations": [
-    ...
-    {
-      "name": "Stores",
-      "floor": 0,
-      "x": 0,
-      "y": 0
-    },
-    ...
-]
-```
+- **AMR only** - delivery tasks are assigned to compatible robots.
+- **Porter only** - delivery tasks are assigned to compatible rostered staff.
+- **Hybrid** - individual flows can allow either resource, with an AMR, porter,
+  or earliest-completion preference.
 
-## Defining Nodes and Edges
+Preferences can vary by day and time. A preference is not an exclusive rule: if
+the preferred resource is unavailable or incompatible, the dispatcher may use
+the other permitted resource.
 
-Nodes on the floor are defined as `Cx_y` where `x` is the level number and `y` is the node letter.
+## Delivery resources
 
-Lift edges are defined as `Lift-x-Fy` where `x` is the lift number and `y` is the floor level.
+The editor's **Delivery Resources** screen contains both AMR and staff resource
+types.
 
-```
-{
-    "corridors": {
-        "nodes": [],
-        "edges": [],
-        "auto_connect": false
-    }
-}
-```
+AMR assumptions include quantity, speed, payload capacity, dimensions, battery,
+charging, start location and payload compatibility.
 
-Nodes must have the four keys to operate
+Staff-delivery assumptions include quantity, individual IDs, walking speed,
+base location, payload capacity, capabilities, working days, shifts,
+contractual breaks, turnaround and optional task-acceptance delay. Pickup and
+drop-off use the scenario's configured building load/unload time.
 
-```
-"nodes": [
-    ...
-    {
-        "name": "C0-A",
-        "floor": 0,
-        "x": 4,
-        "y": 0
-    },
-    ...
-]
-```
-Edges must have these two keys to operate. Do not make a circular reference e.g. `C0-C --> C0-B --> C0-B --> C0-C` as this will confuse the pathfinding function
+Both resource types use the configured route graph and lifts. AMRs additionally
+apply robot-specific battery, charging and physical compatibility rules.
 
-```
-"edges": [
-    ...
-    {
-        "from": "C0-C",
-        "to": "Pharmacy"
-    },
-    {
-        "from": "Lift-2-F0",
-        "to": "C0-C"
-    },
-    ...
-]
-```
+## Task allocation
 
-## Defining payloads
+Manual tasks and generated logistics flows can specify a delivery-resource
+policy:
 
-The name used in the definition is used in the task.
+- `amr`
+- `staff`
+- `either`
 
-```
-{
-    "name": "food_trolley",
-    "weight_kg": 120
-    "size_units": 1.0
-}
+An `either` policy can use `earliest_completion`, `prefer_amr` or
+`prefer_staff`, plus optional day/time preference windows. Policies can also
+restrict eligible AMR types, staff types and required capabilities.
+
+## Quick regression scenarios
+
+Small, reviewable scenarios are provided under
+[`examples/delivery_resources`](examples/delivery_resources/README.md):
+
+1. existing AMR behaviour;
+2. basic staff delivery;
+3. staff shifts, breaks and response delay;
+4. AMR-or-staff dispatch and preference fallback.
+
+These are the best starting point for code review and model-maths validation.
+
+## Direct command-line use
+
+Create an example config:
+
+```powershell
+python simulator.py --write-example your_file_name.json
 ```
 
-## Defining AMRs
+Run an existing config with detailed output:
 
-AMRs are the robots that move around a facility to transport goods.
-
-```
-"amrs": [
-    {
-      "id": "AMR-A", # unique per type of AMR
-      "quantity": 2, # how many do you have, this gets incremented automatically e.g. AMR-A-1..2..3
-      "payload_capacity_kg": 150, # total weight bearing capacity, payload > capacity = no go
-      "payload_size_capacity": 1.0, # related to payload size factor 
-      "speed_m_per_sec": 1.2, # how quick can this thing move
-      "motor_power_w": 900, # motor power
-      "battery_capacity_kwh": 6.5, # how big are the batteries
-      "battery_charge_rate_kw": 2.2, # how quick do they recharge
-      "recharge_threshold_percent": 20.0, # when do you want to retire this unit to recharge %
-      "battery_soc_percent": 100.0, # inital state %
-      "start_location": "Stores" # where does it begin in the simulation
-    }
-],
+```powershell
+python simulator.py `
+  --config your_file_name.json `
+  --verbose `
+  --verbose-csv simulation_steps.csv `
+  --visualiser-csv visualiser_steps.csv `
+  --failed-tasks-csv failed_tasks.csv
 ```
 
-## Defining Lifts
-```
-"lifts": [
-    {
-      "id": "Lift-1", # name of the lift
-      "served_floors": [ # how many levels can this lift get to
-        0,
-        1,
-        2,
-        3
-      ],
-      "speed_floors_per_sec": 0.5, # how fast floors per sec linked to distance between floors e.g 4m between floors * 0.5 = 2m/s
-      "door_time_sec": 4, # how long does it take for the doors to open
-      "boarding_time_sec": 6, # how quickly can the amr get into the lift
-      "capacity_size_units": 1.0, # linked to payload size
-      "start_floor": 0, # where does the lift start in the simulation
-      "floor_locations": { # where is the lift in each level, useful for offsets if plans do not line up.
-        "0": {
-          "x": 5,
-          "y": 2
-        },
-        "1": {
-          "x": 5,
-          "y": 2
-        },
-        "2": {
-          "x": 5,
-          "y": 2
-        },
-        "3": {
-          "x": 5,
-          "y": 2
-        }
-      }
-    },
-    ...
-  ],
+Generate a report:
+
+```powershell
+python report/amr_report_main.py simulation_steps.csv `
+  --config-json your_file_name.json `
+  --failed-tasks-csv failed_tasks.csv `
+  -o simulation_report.pdf
 ```
 
-## Defining Tasks
-```
-"tasks": [
-    {
-      "id": "T1", # can be anything as long as its unique
-      "pickup": "Stores", # location as defined earlier
-      "dropoff": "Ward-1A", # same as above
-      "payload": "food_trolley", # what is it carrying, defined in payloads
-      "release_datetime": "2026-01-01T08:00:00", # when does this task get added to the queue
-      "priority": 10 # how desparately does this need to be done
-    },
-]
-```
+## Validation status
+
+The repository supports AMR, porter and hybrid delivery runs, but comparative
+results should not be treated as validated operational predictions until the
+material assumptions have been agreed. Particular attention should be given to
+task demand, resource numbers, shifts and breaks, response delay, handling and
+turnaround time, speeds, compatibility, charging, dispatch policy, graph scale,
+lift behaviour and the treatment of pending or failed work.
+
+See [Known Limitations And Modelling Assumptions](docs/user-guide/11-known-limitations-and-modelling-assumptions.md)
+before relying on scenario comparisons.

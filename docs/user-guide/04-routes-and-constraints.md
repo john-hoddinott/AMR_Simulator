@@ -3,11 +3,11 @@
 ## Aim
 
 This page explains how route graphs and route constraints influence the way AMRs
-move through a scenario.
+and porters move through a scenario.
 
-Routes are central to the simulator. A realistic AMR fleet assumption is not
-useful if the route graph does not accurately represent the hospital movement
-network.
+Routes are central to the simulator. Realistic delivery-resource assumptions are
+not useful if the route graph does not accurately represent the hospital
+movement network.
 
 ## Key Concepts
 
@@ -23,14 +23,14 @@ points.
 
 **Edge**
 
-A connection between two nodes. Edges represent sections of travel that an AMR
-can use.
+A connection between two nodes. Edges represent sections of travel that a
+delivery resource can use.
 
 **Location connection**
 
-A location must connect to the graph for AMRs to move to or from it. A delivery
-point that looks correct on the layout may still fail if it is not connected to
-the graph.
+A location must connect to the graph for AMRs or porters to move to or from it.
+A delivery point that looks correct on the layout may still fail if it is not
+connected to the graph.
 
 **Route profile**
 
@@ -74,8 +74,13 @@ Route assumptions should check:
 
 - which lifts each workflow may use
 - whether clean and dirty flows share lifts
-- whether AMRs and future porter-led flows would compete for lift space
+- whether AMRs and porters compete for lift space
 - whether the selected lifts create unrealistic detours
+
+Porters use the existing graph-routing and lift model. AMRs additionally apply
+robot-specific physical, route-profile, battery and charging constraints. A
+shared graph therefore does not imply that every resource is eligible for every
+route or payload.
 
 If a route profile excludes necessary lifts, tasks may fail even if the pickup
 and dropoff are otherwise connected.
@@ -86,7 +91,7 @@ Open the config in the editor and inspect the graph over the floor layout.
 
 Check that:
 
-- graph lines follow plausible AMR routes
+- graph lines follow plausible AMR and porter routes
 - nodes are placed at turns, junctions, and access points
 - lifts connect floors correctly
 - important locations have nearby graph connections
@@ -104,6 +109,7 @@ This is especially important for:
 - pharmacy and linen locations
 - theatre case cart receipt and return locations
 - AMR start and charging locations
+- porter bases and shift start locations
 
 ## Step 3: Test With A Simple Task
 
@@ -145,7 +151,7 @@ When reviewing routes, check:
 The graph may not contain the necessary node or edge connections. The simulator
 uses the graph, not the visual corridor drawing.
 
-**The AMR uses the wrong lift**
+**A delivery resource uses the wrong lift**
 
 Check the route profile and lift restrictions. If no restriction applies, the
 simulator may choose the shortest available route.

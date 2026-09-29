@@ -14,7 +14,8 @@ of exactly what will happen in a live hospital.
 
 The simulator models logistics activity across a configured hospital layout.
 It can represent AMR movements, task timing, payloads, route restrictions,
-lift use, location capacity, task generation, and some staff-assisted handling.
+lift use, location capacity, task generation, porter delivery and
+staff-assisted handling.
 
 It does not capture every real-world operational factor. Examples include:
 
@@ -22,7 +23,7 @@ It does not capture every real-world operational factor. Examples include:
 - local workarounds by ward or theatre teams
 - infection prevention decisions made outside the configured route rules
 - temporary blockages not represented in the scenario
-- human behaviour beyond the staff-handling assumptions included in the model
+- human behaviour beyond the configured porter and staff-handling assumptions
 - equipment faults unless they are explicitly represented in the scenario
 
 ## Route Graph And Floor Layouts
@@ -80,9 +81,36 @@ clean, or transfer those items.
 Staff-assisted handling represents staff support at a task endpoint, such as
 time needed to handle a trolley at a receiving location.
 
-This is not currently a porter-led transport model. Porter-led logistics, where
-staff move goods through the building and compete with AMRs for shared resources
-such as lifts, will be provided in a future update.
+Staff-assisted handling is separate from porter-led delivery. It represents
+additional endpoint support and should not be counted as the delivery workforce.
+
+## Porter-Led Delivery
+
+Porter-led logistics is represented through staff-delivery resources that accept
+tasks, walk from their current location to the pickup, accompany the payload to
+the drop-off and use the configured lifts and route graph.
+
+This remains a simplified human model. Results depend on configured shifts,
+breaks, walking speed, handling, turnaround, compatibility and response delay.
+The simulator does not currently reproduce informal task allocation, radio or
+telephone communication, fatigue, individual behavioural variation, local
+workarounds, unplanned clinical requests or every interruption experienced by a
+real porter service.
+
+The task-acceptance delay is a reproducible bounded value, not an empirically
+calibrated queueing or communication model unless its parameters have been set
+from operational evidence.
+
+## Hybrid Dispatch
+
+Hybrid policy chooses between currently feasible resources using a default or
+scheduled preference. A preference is not an exclusive allocation rule. The
+other permitted resource can be selected when the preferred resource is
+unavailable or incompatible.
+
+AMR and porter results within one hybrid run may describe different work. They
+must not be treated as a like-for-like performance comparison without checking
+flow, payload, route and release-time equivalence.
 
 ## Lift Modelling
 
@@ -95,7 +123,7 @@ Results depend on:
 - whether route profiles permit those lifts
 - assumed lift transfer and waiting behaviour
 - the number and timing of tasks needing vertical travel
-- whether future porter-led flows are included in the same lift demand model
+- whether AMR and porter flows are included in the same lift demand model
 
 A scenario can complete all tasks while still creating lift pressure that would
 be operationally unacceptable.
@@ -108,6 +136,23 @@ charging behaviour, route access, and task assignment logic.
 The model can help compare fleet assumptions, but it does not by itself prove
 that a specific AMR product, vendor system, charging strategy, or fleet
 management approach will perform identically in practice.
+
+## Comparative Assumptions
+
+Before using AMR, porter or hybrid differences for a decision, agree and record:
+
+- common task demand, dates and return-generation behaviour;
+- AMR and porter quantities;
+- AMR speeds, charging and payload compatibility;
+- porter walking speed, shifts, breaks and base locations;
+- porter response delay, handling and turnaround;
+- delivery modes, eligibility restrictions and hybrid preference windows;
+- graph scale, route restrictions and lift behaviour;
+- service-level definitions by logistics flow; and
+- treatment of work that is pending or failed at the simulation horizon.
+
+Without this calibration, comparative outputs demonstrate model behaviour but
+do not establish the real-world superiority of an operating model.
 
 ## Run Duration And Performance
 
@@ -136,7 +181,10 @@ Before relying on a scenario comparison, check:
 - floor layouts and graph routes are plausible
 - route distances are credible for sample known journeys
 - task demand matches the scenario intent
+- delivery-resource policies match the operating-model intent
+- AMR and porter assumptions have an identified evidence source
 - failed tasks have been reviewed
+- pending and unassigned work has been reviewed
 - lift activity is plausible in the visualiser
 - report conclusions match the scenario question
 

@@ -5,6 +5,10 @@
 This page explains the staff-assisted handling model and how it affects
 generated tasks.
 
+This feature is different from a porter acting as the delivery resource. Porter
+and hybrid delivery are covered in
+[Porter And Hybrid Delivery](08a-porter-and-hybrid-delivery.md).
+
 ## What This Feature Represents
 
 Staff-assisted handling models staff availability for payload handling and
@@ -18,7 +22,9 @@ It can affect:
 - whether generated tasks are spread across staff working hours
 - staff-related events written to simulation outputs
 
-Porter-led transport functionality will be provided in a future update.
+The assisted-handling staff do not replace the AMR or porter assigned to move
+the payload. They represent additional people needed at an endpoint or for a
+configured handling activity.
 
 ## Key Concepts
 
@@ -107,7 +113,9 @@ The simulator can write staff-related events such as:
 - staff team
 - staff people required
 
-These events help explain delays caused by staff handling assumptions.
+These events help explain delays caused by endpoint staff-handling assumptions.
+They should not be combined with porter-delivery events when interpreting the
+delivery fleet.
 
 ## Worked Example: Catering Delivery
 
@@ -201,6 +209,6 @@ generated tasks are being released together.
 ## Modelling Notes
 
 Staff-assisted handling is useful when the operational question is about whether
-endpoint staff availability affects task timing.
-
-Porter-led transport will be covered by future functionality.
+endpoint staff availability affects task timing. Use a staff-delivery resource,
+not this feature, when the person is intended to accept the delivery task, walk
+to the pickup, accompany the payload and complete the drop-off journey.

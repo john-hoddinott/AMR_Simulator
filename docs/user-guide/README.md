@@ -1,12 +1,12 @@
-# AMR Simulator User Guide
+# Hospital Logistics Simulator User Guide
 
 This guide is intended to help hospital, operational, and modelling users build
-confidence with the AMR Simulator step by step.
+confidence with the hospital logistics simulator step by step.
 
 The early sections focus on creating and running simple simulations. Later
 sections introduce more complex scenario design, generated tasks, departmental
-activity, staff-assisted handling, route constraints, and interpretation of
-outputs.
+activity, AMR and porter delivery, staff-assisted handling, route constraints,
+and interpretation of outputs.
 
 ## Suggested Reading Order
 
@@ -19,9 +19,10 @@ outputs.
 7. [Task Generation Basics](06-task-generation-basics.md)
 8. [Waste and Volume-Based Generation](07-waste-and-volume-generation.md)
 9. [Staff-Assisted Handling](08-staff-assisted-handling.md)
-10. [Designing Scenarios for Comparison](09-designing-scenarios-for-comparison.md)
-11. [Interpreting Outputs](10-interpreting-outputs.md)
-12. [Known Limitations and Modelling Assumptions](11-known-limitations-and-modelling-assumptions.md)
+10. [Porter and Hybrid Delivery](08a-porter-and-hybrid-delivery.md)
+11. [Designing Scenarios for Comparison](09-designing-scenarios-for-comparison.md)
+12. [Interpreting Outputs](10-interpreting-outputs.md)
+13. [Known Limitations and Modelling Assumptions](11-known-limitations-and-modelling-assumptions.md)
 
 ## How These Pages Are Being Developed
 

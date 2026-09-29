@@ -83,8 +83,9 @@ Useful fields include:
 - container capacity
 - full threshold fraction
 
-The payload must be compatible with the AMR fleet. If the payload cannot be
-carried, generated waste tasks may fail even if the generation logic is correct.
+The payload must be compatible with at least one resource permitted by the
+waste flow's delivery policy. If no eligible AMR or porter can carry it,
+generated waste tasks may remain pending or fail even if generation is correct.
 
 ## Department Waste Settings
 
@@ -159,7 +160,9 @@ For each waste stream, check:
 
 - the stream has a clear name
 - the payload exists
-- the payload can be carried by the AMR fleet
+- the payload can be carried by a resource permitted by the flow
+- staff roster windows are long enough for porter-only collections
+- AMR or staff type restrictions match the intended waste resource
 - container capacity is greater than zero
 - full threshold is between zero and one
 
@@ -204,8 +207,8 @@ whether more than one waste generation mechanism is active.
 
 **Waste tasks fail**
 
-Check payload compatibility, location names, route graph connections, route
-profiles, and lift access.
+Check delivery-resource mode, payload compatibility, staff roster windows,
+location names, route graph connections, route profiles and lift access.
 
 **Collections appear at unexpected times**
 
