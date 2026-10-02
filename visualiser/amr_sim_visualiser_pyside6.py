@@ -14,7 +14,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from dxf_scene import DXFScene
 
@@ -2328,6 +2328,10 @@ class SimulationVisualizer(QMainWindow):
         self._dxf_batch_loading = False
         self._simulation_csv_loading = False
         self.sim_log = SimulationLog()
+        # AMRs with at least one populated onboard_payloads snapshot.  Older
+        # result files included the column but wrote "[]" on every row; those
+        # files must use pickup/drop-off inference in the payload monitor.
+        self._authoritative_onboard_amr_ids: Set[str] = set()
         self._state_cache_key = None
         self._state_cache_value = None
         self._inventory_rows_cache: Dict[Tuple[str, Optional[datetime]], List[dict]] = (
@@ -5530,6 +5534,18 @@ class SimulationVisualizer(QMainWindow):
             )
         return records
 
+    def _index_authoritative_onboard_payloads(self):
+        """Identify AMRs whose CSV contains genuine onboard-state snapshots."""
+        authoritative_amrs: Set[str] = set()
+        for event in self.sim_log.events:
+            row = event.row
+            amr_id = str(row.get("amr_id", "") or "").strip()
+            if not amr_id or amr_id in authoritative_amrs:
+                continue
+            if self._parse_onboard_payloads_from_row(row):
+                authoritative_amrs.add(amr_id)
+        self._authoritative_onboard_amr_ids = authoritative_amrs
+
     def _records_from_grouped_payload_row(self, row: dict) -> List[dict]:
         """Build per-payload records from grouped multi-pickup CSV cells.
 
@@ -5609,12 +5625,30 @@ class SimulationVisualizer(QMainWindow):
 
             event_type = str(row.get("event_type", "") or "").strip().lower()
             segment_type = str(row.get("segment_type", "") or "").strip().lower()
-            status = str(row.get("status", "") or "").strip().lower()
-            text = " ".join([event_type, segment_type, status])
+            event_markers = set(
+                re.split(r"[^a-z0-9]+", f"{event_type} {segment_type}")
+            )
+            is_pickup = (
+                "pickup" in event_markers
+                or {"pick", "up"}.issubset(event_markers)
+                or "load" in event_markers
+            )
+            is_dropoff = (
+                "dropoff" in event_markers
+                or {"drop", "off"}.issubset(event_markers)
+                or "unload" in event_markers
+                or ("task" in event_type and "complete" in event_type)
+            )
 
-            # Authoritative state from the latest patched simulator.
+            # Trust onboard snapshots only when this AMR has at least one
+            # populated snapshot in the file.  Some older CSVs wrote "[]" in
+            # every row, so treating that as authoritative would suppress the
+            # pickup/drop-off inference below and leave the monitor empty.
             parsed_onboard = self._parse_onboard_payloads_from_row(row)
-            if parsed_onboard is not None:
+            if (
+                amr_id in self._authoritative_onboard_amr_ids
+                and parsed_onboard is not None
+            ):
                 amr_payloads = {}
                 for item in parsed_onboard:
                     item = dict(item)
@@ -5626,21 +5660,14 @@ class SimulationVisualizer(QMainWindow):
             grouped_records = self._records_from_grouped_payload_row(row)
             amr_payloads = onboard.setdefault(amr_id, {})
 
-            if grouped_records and (
-                "pickup" in text or "pick_up" in text or "load" in text
-            ):
+            if grouped_records and is_pickup:
                 for item in grouped_records:
                     item = dict(item)
                     item["updated"] = event.start_time
                     amr_payloads[item["task_id"]] = item
                 continue
 
-            if grouped_records and (
-                "dropoff" in text
-                or "drop_off" in text
-                or "unload" in text
-                or "complete" in text
-            ):
+            if grouped_records and is_dropoff:
                 for item in grouped_records:
                     amr_payloads.pop(item["task_id"], None)
                 continue
@@ -5651,7 +5678,7 @@ class SimulationVisualizer(QMainWindow):
             if not task_id or not payload:
                 continue
 
-            if "pickup" in text or "pick_up" in text or "load" in text:
+            if is_pickup:
                 amr_payloads[task_id] = {
                     "task_id": task_id,
                     "payload": payload,
@@ -5666,12 +5693,7 @@ class SimulationVisualizer(QMainWindow):
                     ).strip(),
                     "updated": event.start_time,
                 }
-            elif (
-                "dropoff" in text
-                or "drop_off" in text
-                or "unload" in text
-                or "complete" in text
-            ):
+            elif is_dropoff:
                 amr_payloads.pop(task_id, None)
 
         amr_ids = sorted(set(amr_states.keys()) | set(last_seen.keys()))
@@ -7564,6 +7586,7 @@ class SimulationVisualizer(QMainWindow):
             return False
 
         self.current_csv_path = path
+        self._index_authoritative_onboard_payloads()
         self._invalidate_runtime_caches()
         self.update_follow_amr_options()
         if not self.sim_log.events:
