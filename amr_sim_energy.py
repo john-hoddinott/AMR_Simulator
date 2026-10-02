@@ -1,4 +1,3 @@
-import math
 from amr_sim_models import AMR, Lift, PayloadType
 
 G = 9.81

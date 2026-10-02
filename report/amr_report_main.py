@@ -233,7 +233,7 @@ def select_report_sections_dialog(initial_sections=None):
             self.result_sections = normalise_report_sections(sections)
             super().accept()
 
-    app = QApplication.instance() or QApplication([])
+    _app = QApplication.instance() or QApplication([])
     dialog = ReportSectionDialog(initial_sections)
     if dialog.exec() != QDialog.Accepted:
         raise SystemExit("Report cancelled.")
@@ -605,7 +605,7 @@ def launch_report_generator_dialog(args=None) -> None:
                 self.generate_btn.setEnabled(True)
                 self.close_btn.setEnabled(True)
 
-    app = QApplication.instance() or QApplication([])
+    _app = QApplication.instance() or QApplication([])
     dialog = ReportGeneratorDialog(args)
     dialog.exec()
 

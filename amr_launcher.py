@@ -414,7 +414,7 @@ class LauncherWindow(QMainWindow):
         layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(8)
 
-        splitter = QSplitter(Qt.Horizontal)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
         layout.addWidget(splitter, 1)
 
         left = QWidget()
@@ -443,17 +443,21 @@ class LauncherWindow(QMainWindow):
 
         self.detail_label = QLabel("Select a config or run.")
         self.detail_label.setWordWrap(True)
-        self.detail_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.detail_label.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+        )
         self.detail_label.setFixedHeight(self.detail_label.fontMetrics().lineSpacing() * 9)
         self.detail_group = QGroupBox("Details")
-        self.detail_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        self.detail_group.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
+        )
         detail_layout = QVBoxLayout(self.detail_group)
         detail_layout.addWidget(self.detail_label)
         right_layout.addWidget(self.detail_group)
 
         self.log_box = QPlainTextEdit()
         self.log_box.setReadOnly(True)
-        self.log_box.setLineWrapMode(QPlainTextEdit.NoWrap)
+        self.log_box.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         log_group = QGroupBox("Activity Log")
         log_layout = QVBoxLayout(log_group)
         log_layout.addWidget(self.log_box)
@@ -554,7 +558,7 @@ class LauncherWindow(QMainWindow):
 
         text = QPlainTextEdit()
         text.setReadOnly(True)
-        text.setLineWrapMode(QPlainTextEdit.NoWrap)
+        text.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         license_path = REPO_ROOT / "LICENSE"
         try:
             text.setPlainText(license_path.read_text(encoding="utf-8"))
@@ -625,27 +629,33 @@ class LauncherWindow(QMainWindow):
         self.report_action_btn = QPushButton("Generate Report")
         self._style_run_action_button(
             self.report_action_btn,
-            self.style().standardIcon(QStyle.SP_FileDialogContentsView),
+            self.style().standardIcon(
+                QStyle.StandardPixmap.SP_FileDialogContentsView
+            ),
         )
         self.report_action_btn.clicked.connect(self.handle_selected_report_action)
 
         visualise = QPushButton("Visualise")
         self._style_run_action_button(
             visualise,
-            self.style().standardIcon(QStyle.SP_ComputerIcon),
+            self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon),
         )
         visualise.clicked.connect(self.open_visualiser)
 
         open_folder = QPushButton("Open Folder")
         self._style_run_action_button(
             open_folder,
-            self.style().standardIcon(QStyle.SP_DirOpenIcon),
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon),
         )
         open_folder.clicked.connect(self.open_selected_run_folder)
 
         delete_run = QPushButton("Delete")
         trash_icon = self.style().standardIcon(
-            getattr(QStyle, "SP_TrashIcon", QStyle.SP_DialogDiscardButton)
+            getattr(
+                QStyle.StandardPixmap,
+                "SP_TrashIcon",
+                QStyle.StandardPixmap.SP_DialogDiscardButton,
+            )
         )
         self._style_run_action_button(delete_run, trash_icon)
         delete_run.clicked.connect(self.delete_selected_run)
@@ -684,13 +694,16 @@ class LauncherWindow(QMainWindow):
         intent_edit.setMinimumHeight(90)
         layout.addWidget(intent_edit)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.button(QDialogButtonBox.Ok).setText("Start Run")
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Start Run")
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
 
-        if dialog.exec() != QDialog.Accepted:
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
         return intent_edit.toPlainText().strip()
 
@@ -708,7 +721,7 @@ class LauncherWindow(QMainWindow):
         for path in self.config_paths:
             ensure_config_manifest(path)
             item = QListWidgetItem(json_name(path))
-            item.setData(Qt.UserRole, str(path))
+            item.setData(Qt.ItemDataRole.UserRole, str(path))
             self.config_list.addItem(item)
             if selected_text and str(path).lower() == selected_text:
                 self.config_list.setCurrentItem(item)
@@ -734,7 +747,7 @@ class LauncherWindow(QMainWindow):
             report_pdf = Path(outputs.get("report_pdf", path / "simulation_report.pdf"))
             self.run_report_available[str(path.resolve()).lower()] = report_pdf.exists()
             item = QListWidgetItem(str(label))
-            item.setData(Qt.UserRole, str(path))
+            item.setData(Qt.ItemDataRole.UserRole, str(path))
             self.run_list.addItem(item)
             if selected_text and str(path).lower() == selected_text:
                 self.run_list.setCurrentItem(item)
@@ -746,13 +759,13 @@ class LauncherWindow(QMainWindow):
         item = self.config_list.currentItem() if hasattr(self, "config_list") else None
         if item is None:
             return None
-        return Path(item.data(Qt.UserRole))
+        return Path(item.data(Qt.ItemDataRole.UserRole))
 
     def selected_run_dir(self) -> Optional[Path]:
         item = self.run_list.currentItem() if hasattr(self, "run_list") else None
         if item is None:
             return None
-        return Path(item.data(Qt.UserRole))
+        return Path(item.data(Qt.ItemDataRole.UserRole))
 
     def _on_config_selected(self) -> None:
         if self.tabs.currentIndex() != 0:
@@ -844,26 +857,34 @@ class LauncherWindow(QMainWindow):
         if not run_dir:
             self.report_action_btn.setText("Generate Report")
             self.report_action_btn.setIcon(
-                self.style().standardIcon(QStyle.SP_FileDialogContentsView)
+                self.style().standardIcon(
+                    QStyle.StandardPixmap.SP_FileDialogContentsView
+                )
             )
             self.report_action_btn.setEnabled(False)
             return
         if not self.selected_run_is_complete():
             self.report_action_btn.setText("Report Unavailable")
             self.report_action_btn.setIcon(
-                self.style().standardIcon(QStyle.SP_FileDialogContentsView)
+                self.style().standardIcon(
+                    QStyle.StandardPixmap.SP_FileDialogContentsView
+                )
             )
             self.report_action_btn.setEnabled(False)
             return
         if self.selected_run_has_report():
             self.report_action_btn.setText("Open Report")
             self.report_action_btn.setIcon(
-                self.style().standardIcon(QStyle.SP_FileDialogDetailedView)
+                self.style().standardIcon(
+                    QStyle.StandardPixmap.SP_FileDialogDetailedView
+                )
             )
         else:
             self.report_action_btn.setText("Generate Report")
             self.report_action_btn.setIcon(
-                self.style().standardIcon(QStyle.SP_FileDialogContentsView)
+                self.style().standardIcon(
+                    QStyle.StandardPixmap.SP_FileDialogContentsView
+                )
             )
         self.report_action_btn.setEnabled(True)
 
@@ -891,8 +912,8 @@ class LauncherWindow(QMainWindow):
         if not text:
             return
         cursor = self.log_box.textCursor()
-        cursor.movePosition(QTextCursor.End)
-        cursor.select(QTextCursor.LineUnderCursor)
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor.select(QTextCursor.SelectionType.LineUnderCursor)
         cursor.removeSelectedText()
         cursor.insertText(text.rstrip())
         self.log_box.setTextCursor(cursor)
@@ -921,7 +942,10 @@ class LauncherWindow(QMainWindow):
         cwd: Path,
         finished_callback=None,
     ) -> None:
-        if self.process is not None and self.process.state() != QProcess.NotRunning:
+        if (
+            self.process is not None
+            and self.process.state() != QProcess.ProcessState.NotRunning
+        ):
             QMessageBox.warning(self, "Process running", "Wait for the current process to finish.")
             return
 
@@ -933,7 +957,7 @@ class LauncherWindow(QMainWindow):
         self.process.setProgram(program)
         self.process.setArguments(args)
         self.process.setWorkingDirectory(str(cwd))
-        self.process.setProcessChannelMode(QProcess.MergedChannels)
+        self.process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         self.process.readyReadStandardOutput.connect(self._read_process_output)
         self.process.finished.connect(
             lambda code, status: self._process_finished(code, status, finished_callback)
@@ -943,14 +967,14 @@ class LauncherWindow(QMainWindow):
 
     def start_detached(self, program: str, args: List[str], cwd: Path) -> bool:
         self.append_log(f"> {program} {' '.join(args)}")
-        return QProcess.startDetached(program, args, str(cwd))
+        result = QProcess.startDetached(program, args, str(cwd))
+        # PySide versions expose either a bool or a (started, pid) tuple.
+        return bool(result[0]) if isinstance(result, tuple) else bool(result)
 
     def _read_process_output(self) -> None:
         if self.process is None:
             return
-        data = bytes(self.process.readAllStandardOutput()).decode(
-            errors="replace"
-        )
+        data = self.process.readAllStandardOutput().data().decode(errors="replace")
         self.append_process_output(data)
 
     def _process_finished(self, code: int, _status, callback) -> None:
@@ -967,13 +991,16 @@ class LauncherWindow(QMainWindow):
         QTimer.singleShot(0, self.refresh_all)
 
     def cancel_running_process(self) -> None:
-        if self.process is None or self.process.state() == QProcess.NotRunning:
+        if (
+            self.process is None
+            or self.process.state() == QProcess.ProcessState.NotRunning
+        ):
             return
         if QMessageBox.question(
             self,
             "Cancel process",
             "Cancel the running process? Partial output files will be left in the run folder.",
-        ) != QMessageBox.Yes:
+        ) != QMessageBox.StandardButton.Yes:
             return
         self.cancel_requested = True
         self.append_log("Cancellation requested.")
@@ -981,7 +1008,10 @@ class LauncherWindow(QMainWindow):
         QTimer.singleShot(5000, self._kill_process_if_running)
 
     def _kill_process_if_running(self) -> None:
-        if self.process is not None and self.process.state() != QProcess.NotRunning:
+        if (
+            self.process is not None
+            and self.process.state() != QProcess.ProcessState.NotRunning
+        ):
             self.append_log("Process did not stop after terminate; killing it.")
             self.process.kill()
 
@@ -1058,7 +1088,7 @@ class LauncherWindow(QMainWindow):
             self,
             "Archive config",
             f"Archive this config?\n\n{path.name}\n\nIt will be hidden from the launcher list.",
-        ) != QMessageBox.Yes:
+        ) != QMessageBox.StandardButton.Yes:
             return
         LAUNCHER_CONFIG_ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
         target = unique_child_path(LAUNCHER_CONFIG_ARCHIVE_DIR, path.name)
@@ -1088,9 +1118,9 @@ class LauncherWindow(QMainWindow):
             self,
             "Delete config",
             f"Permanently delete this launcher config?\n\n{path.name}\n\nThis does not delete the original file that was imported.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        ) != QMessageBox.Yes:
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        ) != QMessageBox.StandardButton.Yes:
             return
         path.unlink()
         sidecar = config_manifest_path(path)
@@ -1200,7 +1230,7 @@ class LauncherWindow(QMainWindow):
             return
         if (
             self.process is not None
-            and self.process.state() != QProcess.NotRunning
+            and self.process.state() != QProcess.ProcessState.NotRunning
             and self.current_run_dir is not None
             and self.current_run_dir.resolve() == run_dir.resolve()
         ):
@@ -1214,9 +1244,9 @@ class LauncherWindow(QMainWindow):
             self,
             "Delete run",
             f"Permanently delete this run folder and all outputs?\n\n{run_dir}",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        ) != QMessageBox.Yes:
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        ) != QMessageBox.StandardButton.Yes:
             return
         try:
             shutil.rmtree(run_dir)

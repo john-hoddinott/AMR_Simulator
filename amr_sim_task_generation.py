@@ -1777,7 +1777,6 @@ class DynamicCategoryTaskGenerator(BaseTaskGenerator):
             instance, last_time, now
         )
         elapsed_days = elapsed_seconds / 86400.0
-        elapsed_hours = elapsed_seconds / 3600.0
         records: List[GeneratedTaskRecord] = []
 
         if elapsed_seconds <= 0.0 or not department_open:

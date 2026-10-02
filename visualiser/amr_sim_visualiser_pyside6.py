@@ -14,7 +14,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from dxf_scene import DXFScene
 
@@ -31,12 +31,21 @@ from PySide6.QtGui import (
     QFontDatabase,
     QPixmap,
 )
-from PySide6.QtCore import QPointF, QTimer, Qt, QRectF, QRect, QObject, Signal, QThread
+from PySide6.QtCore import (
+    QPointF,
+    QTimer,
+    Qt,
+    QRectF,
+    QRect,
+    QObject,
+    Signal,
+    QThread,
+    QEventLoop,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
-    QDoubleSpinBox,
     QFileDialog,
     QGraphicsEllipseItem,
     QGraphicsItem,
@@ -44,7 +53,6 @@ from PySide6.QtWidgets import (
     QGraphicsPolygonItem,
     QGraphicsRectItem,
     QGraphicsScene,
-    QGraphicsSimpleTextItem,
     QGraphicsView,
     QHBoxLayout,
     QLabel,
@@ -53,7 +61,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSlider,
     QSpinBox,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
     QProgressDialog,
@@ -325,22 +332,37 @@ class SimulationLog:
             return None
         return VisualEvent(start_time=start_dt, end_time=end_dt, row=row)
 
-    def _rebuild_event_index(self):
+    @staticmethod
+    def _report_load_progress(progress_callback, stage, current=0, total=0):
+        if progress_callback is not None:
+            progress_callback(str(stage), int(current), int(total))
+
+    def _rebuild_event_index(self, progress_callback=None):
+        self._report_load_progress(progress_callback, "Sorting simulation events")
         self.events.sort(key=lambda e: e.start_time)
         self._event_start_times = [e.start_time for e in self.events]
         self.start_time = self.events[0].start_time if self.events else None
         self.end_time = max((e.end_time for e in self.events), default=None)
-        self._rebuild_location_event_index()
-        self._rebuild_lift_event_index()
-        self._rebuild_initial_amr_home_spaces()
-        self._rebuild_state_checkpoints()
+        self._rebuild_location_event_index(progress_callback)
+        self._rebuild_lift_event_index(progress_callback)
+        self._rebuild_initial_amr_home_spaces(progress_callback)
+        self._rebuild_state_checkpoints(progress_callback)
         self.reset_playback_cursor()
         self._state_cache_key = None
         self._state_cache_value = None
+        self._report_load_progress(
+            progress_callback, "Simulation event index ready", len(self.events), len(self.events)
+        )
 
-    def _rebuild_initial_amr_home_spaces(self):
+    def _rebuild_initial_amr_home_spaces(self, progress_callback=None):
         self.initial_amr_home_spaces = {}
-        for event in self.events:
+        total = len(self.events)
+        self._report_load_progress(progress_callback, "Finding initial AMR locations", 0, total)
+        for idx, event in enumerate(self.events, start=1):
+            if idx % 5000 == 0:
+                self._report_load_progress(
+                    progress_callback, "Finding initial AMR locations", idx, total
+                )
             row = event.row
             event_type = str(row.get("event_type", "") or "").strip()
             if event_type != "initial_amr_charging_location":
@@ -402,12 +424,18 @@ class SimulationLog:
                 keys.add(value)
         return keys
 
-    def _rebuild_location_event_index(self):
+    def _rebuild_location_event_index(self, progress_callback=None):
         self._events_by_location = {}
         self._location_event_start_times = {}
-        for event in self.events:
+        total = len(self.events)
+        self._report_load_progress(progress_callback, "Indexing events by location", 0, total)
+        for idx, event in enumerate(self.events, start=1):
             for location_name in self._event_location_keys(event.row):
                 self._events_by_location.setdefault(location_name, []).append(event)
+            if idx % 5000 == 0:
+                self._report_load_progress(
+                    progress_callback, "Indexing events by location", idx, total
+                )
         for location_name, events in self._events_by_location.items():
             events.sort(key=lambda e: e.start_time)
             self._location_event_start_times[location_name] = [
@@ -454,12 +482,18 @@ class SimulationLog:
                 keys.add(value[:marker])
         return keys
 
-    def _rebuild_lift_event_index(self):
+    def _rebuild_lift_event_index(self, progress_callback=None):
         self._events_by_lift = {}
         self._lift_event_start_times = {}
-        for event in self.events:
+        total = len(self.events)
+        self._report_load_progress(progress_callback, "Indexing events by lift", 0, total)
+        for idx, event in enumerate(self.events, start=1):
             for lift_id in self._event_lift_keys(event.row):
                 self._events_by_lift.setdefault(lift_id, []).append(event)
+            if idx % 5000 == 0:
+                self._report_load_progress(
+                    progress_callback, "Indexing events by lift", idx, total
+                )
         for lift_id, events in self._events_by_lift.items():
             events.sort(key=lambda e: e.start_time)
             self._lift_event_start_times[lift_id] = [e.start_time for e in events]
@@ -663,7 +697,7 @@ class SimulationLog:
         )
         state["timestamp"] = min(current_time, end_dt)
 
-    def _rebuild_state_checkpoints(self):
+    def _rebuild_state_checkpoints(self, progress_callback=None):
         self._state_checkpoints = []
         self._state_checkpoint_indexes = []
         if not self.events:
@@ -685,6 +719,8 @@ class SimulationLog:
             )
         )
         self._state_checkpoint_indexes.append(0)
+        total = len(self.events)
+        self._report_load_progress(progress_callback, "Building playback checkpoints", 0, total)
         for idx, event in enumerate(self.events, start=1):
             self._apply_state_event(
                 event,
@@ -713,6 +749,9 @@ class SimulationLog:
                     )
                 )
                 self._state_checkpoint_indexes.append(idx)
+                self._report_load_progress(
+                    progress_callback, "Building playback checkpoints", idx, total
+                )
 
     def _checkpoint_for_index(self, idx: int):
         if not self._state_checkpoints:
@@ -722,7 +761,11 @@ class SimulationLog:
         checkpoint_idx, payload = self._state_checkpoints[pos]
         return checkpoint_idx, self._copy_state_accumulators(payload)
 
-    def load(self, path: str):
+    def load(
+        self,
+        path: str,
+        progress_callback: Optional[Callable[[str, int, int], None]] = None,
+    ):
         self.events = []
         self._event_start_times = []
         chunk_size = 10000
@@ -769,6 +812,13 @@ class SimulationLog:
                     writer.writerow(row)
                     chunk_row_count += 1
                     total_rows += 1
+                    if total_rows % chunk_size == 0:
+                        self._report_load_progress(
+                            progress_callback,
+                            f"Reading simulation events ({total_rows:,} rows)",
+                            total_rows,
+                            0,
+                        )
 
                 if chunk_file is not None:
                     chunk_file.close()
@@ -779,24 +829,44 @@ class SimulationLog:
                 workers = min(max(1, (os.cpu_count() or 2) - 1), 8, len(chunk_paths))
                 try:
                     with ProcessPoolExecutor(max_workers=workers) as pool:
-                        for events in pool.map(
-                            _parse_visual_event_chunk_file_process, chunk_paths
+                        for chunk_index, events in enumerate(
+                            pool.map(_parse_visual_event_chunk_file_process, chunk_paths),
+                            start=1,
                         ):
                             self.events.extend(events)
+                            self._report_load_progress(
+                                progress_callback,
+                                "Parsing simulation event chunks",
+                                chunk_index,
+                                len(chunk_paths),
+                            )
                 except Exception:
                     self.events = []
-                    for chunk_path in chunk_paths:
+                    for chunk_index, chunk_path in enumerate(chunk_paths, start=1):
                         self.events.extend(
                             _parse_visual_event_chunk_file_process(chunk_path)
                         )
+                        self._report_load_progress(
+                            progress_callback,
+                            "Parsing simulation event chunks",
+                            chunk_index,
+                            len(chunk_paths),
+                        )
             else:
-                for chunk_path in chunk_paths:
+                for chunk_index, chunk_path in enumerate(chunk_paths, start=1):
                     self.events.extend(_parse_visual_event_chunk_file_process(chunk_path))
+                    self._report_load_progress(
+                        progress_callback,
+                        "Parsing simulation event chunks",
+                        chunk_index,
+                        len(chunk_paths),
+                    )
         finally:
             if temp_dir:
+                self._report_load_progress(progress_callback, "Cleaning temporary event files")
                 shutil.rmtree(temp_dir, ignore_errors=True)
 
-        self._rebuild_event_index()
+        self._rebuild_event_index(progress_callback)
 
     def fraction_to_time(self, fraction: float) -> Optional[datetime]:
         if not self.start_time or not self.end_time:
@@ -817,7 +887,7 @@ class SimulationLog:
             ),
         )
 
-    def state_at(self, current_time: datetime, layout: LayoutModel):
+    def state_at(self, current_time: datetime, _layout: LayoutModel):
         if not self.events or current_time is None:
             return {}, []
 
@@ -855,20 +925,42 @@ class GraphicsView(QGraphicsView):
         self._overlay_provider = None
         self._context_menu_callback = None
 
-        self.setRenderHint(QPainter.Antialiasing, True)
-        self.setRenderHint(QPainter.TextAntialiasing, True)
-        self.setRenderHint(QPainter.SmoothPixmapTransform, True)
-        self.setDragMode(QGraphicsView.NoDrag)
-        self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
-        self.setResizeAnchor(QGraphicsView.AnchorUnderMouse)
-        self.setViewportUpdateMode(QGraphicsView.BoundingRectViewportUpdate)
-        self.setCacheMode(QGraphicsView.CacheBackground)
+        self.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        self.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.BoundingRectViewportUpdate)
+        self.setCacheMode(QGraphicsView.CacheModeFlag.CacheBackground)
         self.setBackgroundBrush(QBrush(QColor("#111111")))
 
         self.opengl_enabled = False
         self.opengl_error = ""
         self.graphics_backend = "raster"
         self.enable_opengl_viewport()
+
+        self._loading_overlay = QLabel(self.viewport())
+        self._loading_overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._loading_overlay.setWordWrap(True)
+        self._loading_overlay.setStyleSheet(
+            "background-color: #111418; color: #e5e7eb; "
+            "font-size: 16px; font-weight: 600; padding: 24px;"
+        )
+        self._loading_overlay.hide()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._loading_overlay.setGeometry(self.viewport().rect())
+
+    def show_loading_overlay(self, text: str) -> None:
+        self._loading_overlay.setText(str(text or "Loading visualisation..."))
+        self._loading_overlay.setGeometry(self.viewport().rect())
+        self._loading_overlay.show()
+        self._loading_overlay.raise_()
+
+    def hide_loading_overlay(self) -> None:
+        self._loading_overlay.hide()
 
     def enable_opengl_viewport(self) -> bool:
         """Use an OpenGL-backed viewport when available.
@@ -895,7 +987,7 @@ class GraphicsView(QGraphicsView):
             # With an OpenGL viewport partial viewport updates can leave stale
             # regions on some drivers. Full updates are more stable and the GPU
             # handles the compositing work.
-            self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
+            self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
             self.opengl_enabled = True
             self.graphics_backend = "opengl"
             self.opengl_error = ""
@@ -904,7 +996,7 @@ class GraphicsView(QGraphicsView):
             self.opengl_enabled = False
             self.graphics_backend = "raster"
             self.opengl_error = str(exc)
-            self.setViewportUpdateMode(QGraphicsView.BoundingRectViewportUpdate)
+            self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.BoundingRectViewportUpdate)
             return False
 
     def set_callbacks(self, zoom_callback=None, pan_callback=None):
@@ -927,13 +1019,13 @@ class GraphicsView(QGraphicsView):
         event.accept()
 
     def mousePressEvent(self, event):
-        if event.button() in (Qt.LeftButton, Qt.MiddleButton):
+        if event.button() in (Qt.MouseButton.LeftButton, Qt.MouseButton.MiddleButton):
             self._last_pan_pos = event.position()
-            self.setCursor(Qt.ClosedHandCursor)
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
             return
 
-        if event.button() == Qt.RightButton and self._context_menu_callback:
+        if event.button() == Qt.MouseButton.RightButton and self._context_menu_callback:
             self._context_menu_callback(event)
             event.accept()
             return
@@ -958,9 +1050,9 @@ class GraphicsView(QGraphicsView):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if event.button() in (Qt.LeftButton, Qt.MiddleButton):
+        if event.button() in (Qt.MouseButton.LeftButton, Qt.MouseButton.MiddleButton):
             self._last_pan_pos = None
-            self.setCursor(Qt.ArrowCursor)
+            self.setCursor(Qt.CursorShape.ArrowCursor)
             self.viewport().update()
             event.accept()
             return
@@ -1153,20 +1245,20 @@ class TaskJumpDialog(QDialog):
         self.tree.header().sectionClicked.connect(self._on_header_clicked)
 
         header = self.tree.header()
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.Stretch)
-        header.setSectionResizeMode(3, QHeaderView.Stretch)
-        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
 
         for amr_id in sorted(grouped_tasks.keys()):
             amr_item = QTreeWidgetItem([amr_id, "", "", "", "", ""])
             amr_item.setFirstColumnSpanned(True)
-            amr_item.setData(0, Qt.UserRole, None)
-            amr_item.setData(1, Qt.UserRole, None)
-            amr_item.setData(0, Qt.UserRole + 10, self._next_insertion_order())
-            amr_item.setData(0, Qt.UserRole + 20, "amr")
+            amr_item.setData(0, Qt.ItemDataRole.UserRole, None)
+            amr_item.setData(1, Qt.ItemDataRole.UserRole, None)
+            amr_item.setData(0, Qt.ItemDataRole.UserRole + 10, self._next_insertion_order())
+            amr_item.setData(0, Qt.ItemDataRole.UserRole + 20, "amr")
 
             for task in grouped_tasks[amr_id]:
                 task_item = QTreeWidgetItem(
@@ -1179,10 +1271,10 @@ class TaskJumpDialog(QDialog):
                         task["sim_datetime"].strftime("%Y-%m-%d %H:%M:%S"),
                     ]
                 )
-                task_item.setData(0, Qt.UserRole, task["start_time"])
-                task_item.setData(1, Qt.UserRole, amr_id)
-                task_item.setData(0, Qt.UserRole + 10, self._next_insertion_order())
-                task_item.setData(0, Qt.UserRole + 20, "task")
+                task_item.setData(0, Qt.ItemDataRole.UserRole, task["start_time"])
+                task_item.setData(1, Qt.ItemDataRole.UserRole, amr_id)
+                task_item.setData(0, Qt.ItemDataRole.UserRole + 10, self._next_insertion_order())
+                task_item.setData(0, Qt.ItemDataRole.UserRole + 20, "task")
 
                 for segment in task.get("segments", []):
                     segment_item = QTreeWidgetItem(
@@ -1195,12 +1287,12 @@ class TaskJumpDialog(QDialog):
                             segment["sim_datetime"].strftime("%Y-%m-%d %H:%M:%S"),
                         ]
                     )
-                    segment_item.setData(0, Qt.UserRole, segment["start_time"])
-                    segment_item.setData(1, Qt.UserRole, amr_id)
+                    segment_item.setData(0, Qt.ItemDataRole.UserRole, segment["start_time"])
+                    segment_item.setData(1, Qt.ItemDataRole.UserRole, amr_id)
                     segment_item.setData(
-                        0, Qt.UserRole + 10, self._next_insertion_order()
+                        0, Qt.ItemDataRole.UserRole + 10, self._next_insertion_order()
                     )
-                    segment_item.setData(0, Qt.UserRole + 20, "segment")
+                    segment_item.setData(0, Qt.ItemDataRole.UserRole + 20, "segment")
                     task_item.addChild(segment_item)
 
                 task_item.setExpanded(False)
@@ -1217,8 +1309,8 @@ class TaskJumpDialog(QDialog):
         return value
 
     def _on_item_double_clicked(self, item, _column):
-        start_time = item.data(0, Qt.UserRole)
-        amr_id = item.data(1, Qt.UserRole)
+        start_time = item.data(0, Qt.ItemDataRole.UserRole)
+        amr_id = item.data(1, Qt.ItemDataRole.UserRole)
 
         if start_time is None:
             return
@@ -1245,7 +1337,7 @@ class TaskJumpDialog(QDialog):
         while self.tree.topLevelItemCount():
             amr_items.append(self.tree.takeTopLevelItem(0))
 
-        amr_items.sort(key=lambda item: item.data(0, Qt.UserRole + 10))
+        amr_items.sort(key=lambda item: item.data(0, Qt.ItemDataRole.UserRole + 10))
 
         for amr_item in amr_items:
             self._sort_children_by_original_order(amr_item)
@@ -1256,7 +1348,7 @@ class TaskJumpDialog(QDialog):
         while parent_item.childCount():
             children.append(parent_item.takeChild(0))
 
-        children.sort(key=lambda item: item.data(0, Qt.UserRole + 10))
+        children.sort(key=lambda item: item.data(0, Qt.ItemDataRole.UserRole + 10))
 
         for child in children:
             self._sort_children_by_original_order(child)
@@ -1291,33 +1383,33 @@ class TaskJumpDialog(QDialog):
             parent_item.addChild(child)
 
     def _item_sort_key(self, item: QTreeWidgetItem, column: int):
-        item_type = item.data(0, Qt.UserRole + 20)
+        item_type = item.data(0, Qt.ItemDataRole.UserRole + 20)
 
         # Keep AMR rows grouped sensibly when sorting their children
         if item_type == "amr":
             return (
                 self._safe_text(item, 0).lower(),
-                item.data(0, Qt.UserRole + 10),
+                item.data(0, Qt.ItemDataRole.UserRole + 10),
             )
 
         if column == 4:
             return (
                 self._duration_seconds(self._safe_text(item, 4)),
                 self._safe_text(item, 0).lower(),
-                item.data(0, Qt.UserRole + 10),
+                item.data(0, Qt.ItemDataRole.UserRole + 10),
             )
 
         if column == 5:
             return (
                 self._datetime_key(self._safe_text(item, 5)),
                 self._safe_text(item, 0).lower(),
-                item.data(0, Qt.UserRole + 10),
+                item.data(0, Qt.ItemDataRole.UserRole + 10),
             )
 
         return (
             self._safe_text(item, column).lower(),
             self._safe_text(item, 0).lower(),
-            item.data(0, Qt.UserRole + 10),
+            item.data(0, Qt.ItemDataRole.UserRole + 10),
         )
 
     def _safe_text(self, item: QTreeWidgetItem, column: int) -> str:
@@ -1397,11 +1489,11 @@ class TasksByLocationDepartmentDialog(QDialog):
         self.tree.setHeaderLabels([heading for _key, heading, _width in self.columns])
         self.tree.setRootIsDecorated(True)
         self.tree.setAlternatingRowColors(True)
-        self.tree.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.tree.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.tree.itemDoubleClicked.connect(self._on_item_double_clicked)
         header = self.tree.header()
         for idx, (_key, _heading, width) in enumerate(self.columns):
-            header.setSectionResizeMode(idx, QHeaderView.Interactive)
+            header.setSectionResizeMode(idx, QHeaderView.ResizeMode.Interactive)
             self.tree.setColumnWidth(idx, width)
         layout.addWidget(self.tree, 1)
 
@@ -1483,11 +1575,11 @@ class TasksByLocationDepartmentDialog(QDialog):
                     for key, _heading, _width in self.columns
                 ]
                 item = QTreeWidgetItem(values)
-                item.setData(0, Qt.UserRole, row.get("start_time"))
-                item.setData(1, Qt.UserRole, row.get("task_id", ""))
+                item.setData(0, Qt.ItemDataRole.UserRole, row.get("start_time"))
+                item.setData(1, Qt.ItemDataRole.UserRole, row.get("task_id", ""))
                 item.setData(
                     2,
-                    Qt.UserRole,
+                    Qt.ItemDataRole.UserRole,
                     row.get("finish_location") or row.get("start_location") or "",
                 )
                 details = str(row.get("details", "") or "")
@@ -1497,12 +1589,12 @@ class TasksByLocationDepartmentDialog(QDialog):
                 group_item.addChild(item)
 
     def _on_item_double_clicked(self, item, _column):
-        start_time = item.data(0, Qt.UserRole)
+        start_time = item.data(0, Qt.ItemDataRole.UserRole)
         if start_time is None:
             return
         self.selected_time = start_time
-        self.selected_task_id = str(item.data(1, Qt.UserRole) or "")
-        self.selected_location = str(item.data(2, Qt.UserRole) or "")
+        self.selected_task_id = str(item.data(1, Qt.ItemDataRole.UserRole) or "")
+        self.selected_location = str(item.data(2, Qt.ItemDataRole.UserRole) or "")
         self.accept()
 
 
@@ -1511,7 +1603,7 @@ class LiftShaftWidget(QWidget):
         super().__init__(parent)
         self.lift_state = None
         self.setMinimumSize(120, 260)
-        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
     def set_lift_state(self, lift_state: dict):
         self.lift_state = lift_state
@@ -1536,7 +1628,7 @@ class LiftShaftWidget(QWidget):
         shaft_h = max(160, self.height() - 120)
 
         painter.setPen(QPen(QColor("#666666"), 2))
-        painter.setBrush(Qt.NoBrush)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(left, top, shaft_w, shaft_h)
 
         font = QFont()
@@ -1573,78 +1665,6 @@ class LiftShaftWidget(QWidget):
         painter.drawText(12, top + shaft_h + 46, f"Pos: F{current_floor:.2f}")
 
 
-class LocationInventoryPayloadDialog(QDialog):
-    columns = [
-        ("space", "Inventory space", 180),
-        ("payload", "Current payload", 170),
-        ("details", "Payload details", 260),
-        ("waste_volume_display", "Waste volume filled", 160),
-        ("fill_percent_display", "Fill", 90),
-        ("payload_instance_id", "Payload instance", 210),
-        ("waste_stream", "Waste stream", 120),
-        ("container_group", "Container group", 160),
-        ("task_id", "Task", 100),
-        ("amr_id", "AMR", 100),
-        ("status", "Status", 130),
-        ("timestamp", "Updated", 160),
-        ("source", "Source", 150),
-    ]
-
-    def __init__(
-        self,
-        parent,
-        location_name: str,
-        rows: List[dict],
-        current_time: Optional[datetime],
-    ):
-        super().__init__(parent)
-        self.setWindowTitle(f"Inventory payloads - {location_name}")
-        self.resize(980, 420)
-        self.location_name = location_name
-        self.rows = list(rows or [])
-        self.current_time = current_time
-
-        layout = QVBoxLayout(self)
-        stamp = current_time.strftime("%Y-%m-%d %H:%M:%S") if current_time else "-"
-        self.summary_label = QLabel(
-            f"Location: {location_name}\nTime: {stamp}\nSpaces: {len(self.rows)}"
-        )
-        self.summary_label.setWordWrap(True)
-        layout.addWidget(self.summary_label)
-
-        self.table = QTableWidget(0, len(self.columns))
-        self.table.setHorizontalHeaderLabels(
-            [heading for _key, heading, _width in self.columns]
-        )
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
-        for idx, (_key, _heading, width) in enumerate(self.columns):
-            self.table.setColumnWidth(idx, width)
-        layout.addWidget(self.table, 1)
-
-        close_btn = QPushButton("Close")
-        close_btn.clicked.connect(self.accept)
-        row = QHBoxLayout()
-        row.addStretch(1)
-        row.addWidget(close_btn)
-        layout.addLayout(row)
-
-        self._refresh_table()
-
-    def _refresh_table(self):
-        self.table.setRowCount(0)
-        for row_data in self.rows:
-            row = self.table.rowCount()
-            self.table.insertRow(row)
-            for col, (key, _heading, _width) in enumerate(self.columns):
-                value = row_data.get(key, "")
-                self.table.setItem(
-                    row,
-                    col,
-                    QTableWidgetItem(str(value if value not in (None, "") else "-")),
-                )
 
 
 class LocationInventorySpacesDialog(QDialog):
@@ -1678,10 +1698,10 @@ class LocationInventorySpacesDialog(QDialog):
         self.table.setHorizontalHeaderLabels(
             [heading for _key, heading, _width in self.columns]
         )
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         for idx, (_key, _heading, width) in enumerate(self.columns):
             self.table.setColumnWidth(idx, width)
         layout.addWidget(self.table, 1)
@@ -1727,7 +1747,7 @@ class AmrPayloadMonitorDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("AMR Payload Monitor")
-        self.setWindowModality(Qt.NonModal)
+        self.setWindowModality(Qt.WindowModality.NonModal)
         self.resize(1320, 520)
         self._rows = []
 
@@ -1740,10 +1760,10 @@ class AmrPayloadMonitorDialog(QDialog):
         self.table.setHorizontalHeaderLabels(
             [heading for _key, heading, _width in self.columns]
         )
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         for idx, (_key, _heading, width) in enumerate(self.columns):
             self.table.setColumnWidth(idx, width)
         layout.addWidget(self.table, 1)
@@ -1785,7 +1805,7 @@ class AmrPayloadMonitorDialog(QDialog):
                 item = QTableWidgetItem(text)
                 if key == "payload_count":
                     try:
-                        item.setData(Qt.DisplayRole, int(value or 0))
+                        item.setData(Qt.ItemDataRole.DisplayRole, int(value or 0))
                     except Exception:
                         pass
                 self.table.setItem(row, col, item)
@@ -1807,7 +1827,7 @@ class LiftMonitorDialog(QDialog):
 
         self._row = row
 
-        self.setWindowModality(Qt.NonModal)
+        self.setWindowModality(Qt.WindowModality.NonModal)
 
     def set_lifts(self, lift_states: List[dict]):
         while self._row.count():
@@ -1820,7 +1840,7 @@ class LiftMonitorDialog(QDialog):
 
         for lift_state in lift_states:
             panel = QFrame()
-            panel.setFrameShape(QFrame.StyledPanel)
+            panel.setFrameShape(QFrame.Shape.StyledPanel)
             panel.setStyleSheet(
                 "QFrame { background: #101010; border: 1px solid #333333; } QLabel { color: white; } QListWidget { background: #151515; color: white; border: 1px solid #333333; }"
             )
@@ -1831,9 +1851,9 @@ class LiftMonitorDialog(QDialog):
             waiting_list = QListWidget(panel)
             waiting_list.setMinimumHeight(110)
             name_label = QLabel(lift_state.get("lift_id", "Lift"))
-            name_label.setAlignment(Qt.AlignCenter)
+            name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-            layout.addWidget(shaft, alignment=Qt.AlignHCenter)
+            layout.addWidget(shaft, alignment=Qt.AlignmentFlag.AlignHCenter)
             layout.addWidget(name_label)
             layout.addWidget(waiting_label)
             layout.addWidget(waiting_list)
@@ -1891,7 +1911,7 @@ class AmrTimelineWidget(QWidget):
         self.min_tick_spacing_px = 120
         self._pressed = False
 
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._update_virtual_size()
 
     def set_zoom_seconds_per_pixel(self, seconds_per_pixel: float):
@@ -2052,7 +2072,7 @@ class AmrTimelineWidget(QWidget):
                 4,
                 120,
                 18,
-                Qt.AlignLeft | Qt.AlignVCenter,
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                 day.strftime("%a %d %b"),
             )
             day += timedelta(days=1)
@@ -2066,7 +2086,7 @@ class AmrTimelineWidget(QWidget):
 
         if not self.timeline_data or not self.start_time or not self.end_time:
             painter.setPen(QColor("#cfcfcf"))
-            painter.drawText(self.rect(), Qt.AlignCenter, "No timeline data")
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "No timeline data")
             return
 
         scroll_x = self._visible_scroll_x()
@@ -2096,7 +2116,7 @@ class AmrTimelineWidget(QWidget):
                 22,
                 84,
                 30,
-                Qt.AlignCenter,
+                Qt.AlignmentFlag.AlignCenter,
                 self._format_tick_label(tick_time, step_seconds),
             )
 
@@ -2121,12 +2141,12 @@ class AmrTimelineWidget(QWidget):
                 if label and rect.width() >= 54:
                     metrics = painter.fontMetrics()
                     text = metrics.elidedText(
-                        label, Qt.ElideRight, max(1, int(rect.width()) - 8)
+                        label, Qt.TextElideMode.ElideRight, max(1, int(rect.width()) - 8)
                     )
                     painter.setPen(QColor("#ffffff"))
                     painter.drawText(
                         rect.adjusted(4, 0, -4, 0),
-                        Qt.AlignLeft | Qt.AlignVCenter,
+                        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                         text,
                     )
 
@@ -2152,7 +2172,7 @@ class AmrTimelineWidget(QWidget):
             22,
             self.label_column_width - 16,
             24,
-            Qt.AlignLeft | Qt.AlignVCenter,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
             "AMR",
         )
         for row, lane in enumerate(self.timeline_data):
@@ -2163,12 +2183,12 @@ class AmrTimelineWidget(QWidget):
                 y + 3,
                 self.label_column_width - 16,
                 24,
-                Qt.AlignLeft | Qt.AlignVCenter,
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                 str(lane["amr_id"]),
             )
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             self._pressed = True
             self._emit_seek(event.position().x())
             event.accept()
@@ -2183,7 +2203,7 @@ class AmrTimelineWidget(QWidget):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             self._pressed = False
             event.accept()
             return
@@ -2227,9 +2247,9 @@ class LocationInventoryPayloadDialog(QDialog):
 
         self.table = QTableWidget(0, len(self.columns))
         self.table.setHorizontalHeaderLabels([h for _k, h, _w in self.columns])
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
 
         for idx, (_key, _heading, width) in enumerate(self.columns):
             self.table.setColumnWidth(idx, width)
@@ -2305,6 +2325,8 @@ class SimulationVisualizer(QMainWindow):
         self.current_dxf_floor: Optional[int] = None
         self.dxf_loading_failures: Dict[int, str] = {}
         self._dxf_text_bucket: Optional[int] = None
+        self._dxf_batch_loading = False
+        self._simulation_csv_loading = False
         self.sim_log = SimulationLog()
         self._state_cache_key = None
         self._state_cache_value = None
@@ -2534,7 +2556,7 @@ class SimulationVisualizer(QMainWindow):
         self.time_label.setWordWrap(True)
         side_layout.addWidget(self.time_label)
 
-        self.slider = QSlider(Qt.Horizontal)
+        self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setRange(0, 1000)
         self.slider.valueChanged.connect(self.on_slider_change)
         side_layout.addWidget(self.slider)
@@ -2641,8 +2663,8 @@ class SimulationVisualizer(QMainWindow):
 
         self.timeline_scroll = QScrollArea()
         self.timeline_scroll.setWidgetResizable(False)
-        self.timeline_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.timeline_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.timeline_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.timeline_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.timeline_scroll.setWidget(self.timeline_widget)
         self.timeline_scroll.horizontalScrollBar().valueChanged.connect(
             self.timeline_widget.update
@@ -2654,7 +2676,7 @@ class SimulationVisualizer(QMainWindow):
         timeline_panel_layout.addLayout(timeline_controls)
         timeline_panel_layout.addWidget(self.timeline_scroll, 1)
 
-        self.main_splitter = QSplitter(Qt.Vertical)
+        self.main_splitter = QSplitter(Qt.Orientation.Vertical)
         self.main_splitter.addWidget(self.view)
         self.main_splitter.addWidget(self.timeline_panel)
         self.main_splitter.setStretchFactor(0, 5)
@@ -2664,99 +2686,9 @@ class SimulationVisualizer(QMainWindow):
         layout.addWidget(side)
         layout.addWidget(self.main_splitter, 1)
 
-    def _location_by_name(self, location_name):
-        for location in self.layout_model.data.get("locations", []):
-            if str(location.get("name", "")).strip() == str(location_name).strip():
-                return location
-        return None
 
-    def _payload_value_from_space(self, space):
-        amr_id = str(space.get("amr_id", "") or "").strip()
-        if amr_id:
-            return f"AMR: {amr_id}"
-        for key in (
-            "current_payload",
-            "payload",
-            "payload_name",
-            "stored_payload",
-            "contents",
-            "content",
-            "item",
-        ):
-            value = space.get(key)
-            if value not in (None, "", []):
-                if isinstance(value, list):
-                    return ", ".join(str(x) for x in value if str(x).strip()) or "-"
-                return str(value)
 
-        # Inventory spaces are usually defined with payload_slots rather than a
-        # top-level current payload.  Treat those configured slots as initially
-        # stored payloads so seeded/starting containers are visible before the
-        # first CSV event has moved them.
-        slots = space.get("payload_slots", []) or []
-        if isinstance(slots, list):
-            payloads = []
-            for slot in slots:
-                if not isinstance(slot, dict):
-                    continue
-                payload = str(slot.get("payload", "") or "").strip()
-                if payload:
-                    payloads.append(payload)
-            if payloads:
-                return ", ".join(payloads)
 
-        return "-"
-
-    def _inventory_payload_rows_for_location(self, location_name):
-        location = self._location_by_name(location_name)
-        if not location:
-            return []
-
-        rows = []
-        for idx, space in enumerate(
-            location.get("inventory_spaces", []) or [], start=1
-        ):
-            payload = self._payload_value_from_space(space)
-            rows.append(
-                {
-                    "space": str(space.get("name", "")).strip() or f"Inventory {idx}",
-                    "payload": payload,
-                    "task_id": space.get("task_id", "-"),
-                    "amr_id": space.get("amr_id", "-"),
-                    "status": "Stored" if payload != "-" else "Empty",
-                    "timestamp": space.get("timestamp", "-"),
-                    "source": "Layout JSON",
-                }
-            )
-
-        return rows
-
-    def show_location_inventory_payloads(self, location_name):
-        point = self.layout_model.points.get(location_name, {})
-        if point.get("kind") != "location":
-            QMessageBox.information(
-                self,
-                "Inventory status",
-                f"{location_name} is not a location node.",
-            )
-            return
-
-        rows = self._inventory_payload_rows_for_location(location_name)
-        if not rows:
-            QMessageBox.information(
-                self,
-                f"Inventory status - {location_name}",
-                f"Location: {location_name}\n\nNo inventory spaces are defined for this location.",
-            )
-            return
-
-        dialog = LocationInventoryPayloadDialog(
-            self,
-            location_name,
-            rows,
-            self.current_time,
-        )
-        dialog.exec()
 
     def reload_current_floor_dxf(self):
         floor = self.current_floor()
@@ -2815,6 +2747,8 @@ class SimulationVisualizer(QMainWindow):
 
         if not floor_dxf_files:
             self.update_loaded_files()
+            self._dxf_batch_loading = False
+            self._finish_loading_overlay_if_ready()
             return
 
         if self._dxf_loader_active():
@@ -2823,16 +2757,17 @@ class SimulationVisualizer(QMainWindow):
             )
             return
 
+        self._dxf_batch_loading = True
+        self.view.show_loading_overlay("Loading hospital floor plans...")
+
         self.dxf_progress_dialog = QProgressDialog(
             label, "Cancel", 0, len(floor_dxf_files), self
         )
         self.dxf_progress_dialog.setWindowTitle("Loading DXFs")
-        self.dxf_progress_dialog.setWindowModality(Qt.WindowModal)
+        self.dxf_progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
         self.dxf_progress_dialog.setMinimumDuration(0)
         self.dxf_progress_dialog.setValue(0)
         self.dxf_progress_dialog.show()
-
-        self.view.setUpdatesEnabled(False)
 
         self.dxf_load_thread = QThread(self)
         self.dxf_load_worker = DxfLoadWorker(floor_dxf_files)
@@ -2862,6 +2797,9 @@ class SimulationVisualizer(QMainWindow):
         self._start_dxf_load_batch(floor_dxf_files, label="Loading DXFs...")
 
     def on_dxf_load_progress(self, value: int, total: int, label: str):
+        self.view.show_loading_overlay(
+            f"Loading hospital floor plans\n\n{value} of {total} complete"
+        )
         if self.dxf_progress_dialog is None:
             return
         if self.dxf_progress_dialog:
@@ -2869,7 +2807,7 @@ class SimulationVisualizer(QMainWindow):
                 self.dxf_progress_dialog.setMaximum(total)
                 self.dxf_progress_dialog.setValue(value)
                 self.dxf_progress_dialog.setLabelText(label)
-            except NameError as e:
+            except NameError:
                 return
 
     def on_dxf_floor_loaded(self, floor: int, path: str, entities, bounds):
@@ -2901,9 +2839,9 @@ class SimulationVisualizer(QMainWindow):
             self.dxf_progress_dialog.close()
             self.dxf_progress_dialog = None
 
-        self.view.setUpdatesEnabled(True)
         self.show_dxf_floor(self.current_floor())
         self.refresh_static_scene()
+        self.fit_view()
         self.view.viewport().update()
 
         if self.dxf_loading_failures:
@@ -2915,6 +2853,14 @@ class SimulationVisualizer(QMainWindow):
 
         self.dxf_load_worker = None
         self.dxf_load_thread = None
+        self._dxf_batch_loading = False
+        self._finish_loading_overlay_if_ready()
+
+    def _finish_loading_overlay_if_ready(self) -> None:
+        if self._dxf_batch_loading or self._simulation_csv_loading:
+            return
+        self.view.hide_loading_overlay()
+        self.view.viewport().update()
 
     def current_dxf_scene(self) -> Optional[DXFScene]:
         return self.dxf_scenes.get(self.current_floor())
@@ -3272,13 +3218,13 @@ class SimulationVisualizer(QMainWindow):
         """Return a tiny raster texture brush for repeated moving-object fills."""
         qcolor = QColor(color)
         qcolor.setAlpha(max(0, min(255, int(alpha))))
-        key = (qcolor.name(QColor.HexArgb), int(alpha))
+        key = (qcolor.name(QColor.NameFormat.HexArgb), int(alpha))
         cached = self._brush_texture_cache.get(key)
         if cached is not None:
             return cached
 
         pixmap = QPixmap(16, 16)
-        pixmap.fill(Qt.transparent)
+        pixmap.fill(Qt.GlobalColor.transparent)
         painter = QPainter(pixmap)
         painter.fillRect(0, 0, 16, 16, qcolor)
         highlight = QColor("#ffffff")
@@ -3428,10 +3374,10 @@ class SimulationVisualizer(QMainWindow):
         # Elide the last line if even the wrapped text is still too long or if
         # earlier content was truncated due to max_lines.
         if len(lines) >= max_lines:
-            lines[-1] = metrics.elidedText(lines[-1], Qt.ElideRight, int(max_width))
+            lines[-1] = metrics.elidedText(lines[-1], Qt.TextElideMode.ElideRight, int(max_width))
         else:
             lines = [
-                metrics.elidedText(line, Qt.ElideRight, int(max_width))
+                metrics.elidedText(line, Qt.TextElideMode.ElideRight, int(max_width))
                 for line in lines
             ]
         return lines[:max_lines]
@@ -3485,8 +3431,8 @@ class SimulationVisualizer(QMainWindow):
         best_px = min_px
 
         font = QFont("Arial")
-        font.setStyleStrategy(QFont.PreferAntialias)
-        font.setHintingPreference(QFont.PreferFullHinting)
+        font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+        font.setHintingPreference(QFont.HintingPreference.PreferFullHinting)
         for px in range(candidate_px, min_px - 1, -1):
             font.setPixelSize(px)
             painter.setFont(font)
@@ -3526,7 +3472,7 @@ class SimulationVisualizer(QMainWindow):
             y = y0 + (line_no * line_height)
             painter.drawText(
                 QRectF(-usable_w / 2.0, y - metrics.ascent(), usable_w, line_height),
-                Qt.AlignCenter,
+                Qt.AlignmentFlag.AlignCenter,
                 line,
             )
         painter.restore()
@@ -3551,11 +3497,11 @@ class SimulationVisualizer(QMainWindow):
 
         font = QFont("Arial")
         font.setPixelSize(base_px)
-        font.setStyleStrategy(QFont.PreferAntialias)
-        font.setHintingPreference(QFont.PreferFullHinting)
+        font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+        font.setHintingPreference(QFont.HintingPreference.PreferFullHinting)
         painter.save()
         painter.setFont(font)
-        painter.setRenderHint(QPainter.TextAntialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
 
         for record in records:
             if not record.get("visible", True):
@@ -3622,7 +3568,11 @@ class SimulationVisualizer(QMainWindow):
                 x2, y2 = self.world_to_scene(*entity["end"])
                 self.draw_line_item(x1, y1, x2, y2, "#858585")
             elif etype == "POLYLINE":
-                pts = [QPointF(*self.world_to_scene(x, y)) for x, y in entity["points"]]
+                pts = [
+                    QPointF(float(scene_x), float(scene_y))
+                    for x, y in entity["points"]
+                    for scene_x, scene_y in [self.world_to_scene(x, y)]
+                ]
                 for i in range(len(pts) - 1):
                     self.draw_line_item(
                         pts[i].x(),
@@ -3665,7 +3615,7 @@ class SimulationVisualizer(QMainWindow):
                 pen = QPen(QColor("#2e2e2e"))
                 pen.setWidthF(0.0)
                 item.setPen(pen)
-                item.setBrush(Qt.NoBrush)
+                item.setBrush(Qt.BrushStyle.NoBrush)
                 self.graphics_scene.addItem(item)
                 self.static_items.append(item)
             elif etype == "TEXT":
@@ -3716,12 +3666,12 @@ class SimulationVisualizer(QMainWindow):
             if kind == "location":
                 item = QGraphicsEllipseItem(x - 0.5, y - 0.5, 1.0, 1.0)
                 item.setBrush(QBrush(QColor("#18c37e")))
-                item.setPen(QPen(Qt.NoPen))
+                item.setPen(QPen(Qt.PenStyle.NoPen))
                 color = "#9bf0cd"
             elif kind == "corridor_node":
                 item = QGraphicsRectItem(x - 0.4, y - 0.4, 0.8, 0.8)
                 item.setBrush(QBrush(QColor("#f2c94c")))
-                item.setPen(QPen(Qt.NoPen))
+                item.setPen(QPen(Qt.PenStyle.NoPen))
                 color = "#ffe8a3"
             else:
                 poly = QPolygonF(
@@ -3734,7 +3684,7 @@ class SimulationVisualizer(QMainWindow):
                 )
                 item = QGraphicsPolygonItem(poly)
                 item.setBrush(QBrush(QColor("#ff7b72")))
-                item.setPen(QPen(Qt.NoPen))
+                item.setPen(QPen(Qt.PenStyle.NoPen))
                 color = "#ffb3ae"
 
             item.setData(0, "layout_node")
@@ -4690,7 +4640,11 @@ class SimulationVisualizer(QMainWindow):
         ).strip()
         status_lower = status.lower()
 
-        points = [QPointF(*self.world_to_scene(x, y)) for x, y in points_world]
+        points = [
+            QPointF(float(scene_x), float(scene_y))
+            for x, y in points_world
+            for scene_x, scene_y in [self.world_to_scene(x, y)]
+        ]
         item = QGraphicsPolygonItem(QPolygonF(points))
 
         if occupied:
@@ -4706,7 +4660,7 @@ class SimulationVisualizer(QMainWindow):
 
         item.setBrush(QBrush(fill))
         item.setPen(QPen(outline, 0.0))
-        item.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
+        item.setCacheMode(QGraphicsItem.CacheMode.DeviceCoordinateCache)
         item.setData(0, "inventory_space_status")
         item.setData(1, str(space.get("name", "") or ""))
 
@@ -4794,7 +4748,7 @@ class SimulationVisualizer(QMainWindow):
             outline = QColor("#d7ffe7")
         item.setBrush(self._texture_brush(fill, fill.alpha()))
         item.setPen(QPen(outline, 0.0))
-        item.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
+        item.setCacheMode(QGraphicsItem.CacheMode.DeviceCoordinateCache)
         item.setData(0, "room_payload")
         item.setData(1, payload_name)
         self.graphics_scene.addItem(item)
@@ -5223,7 +5177,7 @@ class SimulationVisualizer(QMainWindow):
         poly = QGraphicsPolygonItem(QPolygonF(poly_pts))
         poly.setBrush(self._texture_brush(fill, 205))
         poly.setPen(QPen(QColor("#858585"), 0.0))
-        poly.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
+        poly.setCacheMode(QGraphicsItem.CacheMode.DeviceCoordinateCache)
         self.graphics_scene.addItem(poly)
         self._active_dynamic_items().append(poly)
 
@@ -5263,7 +5217,7 @@ class SimulationVisualizer(QMainWindow):
             )
             foot.setBrush(QBrush(QColor(marker_colour)))
             foot.setPen(QPen(QColor("#173342"), 0.04))
-            foot.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
+            foot.setCacheMode(QGraphicsItem.CacheMode.DeviceCoordinateCache)
             self.graphics_scene.addItem(foot)
             self._active_dynamic_items().append(foot)
 
@@ -5282,7 +5236,7 @@ class SimulationVisualizer(QMainWindow):
         body = QGraphicsPolygonItem(QPolygonF(body_points))
         body.setBrush(QBrush(QColor(marker_colour)))
         body.setPen(QPen(QColor("#173342"), 0.05))
-        body.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
+        body.setCacheMode(QGraphicsItem.CacheMode.DeviceCoordinateCache)
         self.graphics_scene.addItem(body)
         self._active_dynamic_items().append(body)
 
@@ -5296,7 +5250,7 @@ class SimulationVisualizer(QMainWindow):
         )
         head.setBrush(QBrush(QColor("#e5e5e5")))
         head.setPen(QPen(QColor("#173342"), 0.05))
-        head.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
+        head.setCacheMode(QGraphicsItem.CacheMode.DeviceCoordinateCache)
         self.graphics_scene.addItem(head)
         self._active_dynamic_items().append(head)
 
@@ -5493,7 +5447,7 @@ class SimulationVisualizer(QMainWindow):
             return
 
         self.lift_monitor_dialog = LiftMonitorDialog(self)
-        self.lift_monitor_dialog.setAttribute(Qt.WA_DeleteOnClose, True)
+        self.lift_monitor_dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.lift_monitor_dialog.destroyed.connect(
             self._clear_lift_monitor_dialog_reference
         )
@@ -5799,7 +5753,7 @@ class SimulationVisualizer(QMainWindow):
             return
 
         self.amr_payload_monitor_dialog = AmrPayloadMonitorDialog(self)
-        self.amr_payload_monitor_dialog.setAttribute(Qt.WA_DeleteOnClose, True)
+        self.amr_payload_monitor_dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.amr_payload_monitor_dialog.destroyed.connect(
             self._clear_amr_payload_monitor_dialog_reference
         )
@@ -7159,7 +7113,7 @@ class SimulationVisualizer(QMainWindow):
                 item = QGraphicsEllipseItem(x - r, y - r, r * 2, r * 2)
                 item.setBrush(QBrush(QColor("#ff9f1c" if is_followed else "#4da3ff")))
                 item.setPen(QPen(QColor("#858585"), 0.0))
-                item.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
+                item.setCacheMode(QGraphicsItem.CacheMode.DeviceCoordinateCache)
                 self.graphics_scene.addItem(item)
                 self._active_dynamic_items().append(item)
 
@@ -7474,6 +7428,7 @@ class SimulationVisualizer(QMainWindow):
         self.view.viewport().update()
 
     def load_json_file(self, path: str) -> bool:
+        self.view.show_loading_overlay("Preparing hospital layout...")
         try:
             self.layout_model.load(path)
         except json.JSONDecodeError as exc:
@@ -7483,6 +7438,7 @@ class SimulationVisualizer(QMainWindow):
                 f"{Path(path).name} is not valid JSON.\n\n{exc}",
             )
             self.set_status("Layout JSON load failed: invalid JSON syntax")
+            self._finish_loading_overlay_if_ready()
             return False
         except OSError as exc:
             QMessageBox.critical(
@@ -7491,6 +7447,7 @@ class SimulationVisualizer(QMainWindow):
                 f"{Path(path).name} could not be read.\n\n{exc}",
             )
             self.set_status("Layout JSON load failed: file could not be read")
+            self._finish_loading_overlay_if_ready()
             return False
         except Exception as exc:
             QMessageBox.critical(
@@ -7499,6 +7456,7 @@ class SimulationVisualizer(QMainWindow):
                 f"{Path(path).name} could not be loaded.\n\n{exc}",
             )
             self.set_status("Layout JSON load failed")
+            self._finish_loading_overlay_if_ready()
             return False
 
         self.current_json_path = path
@@ -7557,9 +7515,23 @@ class SimulationVisualizer(QMainWindow):
             label=f"Loading DXF for floor {floor}...",
         )
 
+    def _simulation_load_progress(self, stage: str, current: int, total: int) -> None:
+        if total > 0:
+            status = f"{stage}: {current:,} of {total:,}"
+        else:
+            status = stage
+        self.set_status(status)
+        self.view.show_loading_overlay(f"Loading simulation results\n\n{status}")
+
+        app = QApplication.instance()
+        if app is not None:
+            app.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+
     def load_csv_file(self, path: str) -> bool:
+        self._simulation_csv_loading = True
+        self.view.show_loading_overlay("Loading simulation results...")
         try:
-            self.sim_log.load(path)
+            self.sim_log.load(path, progress_callback=self._simulation_load_progress)
         except OSError as exc:
             QMessageBox.critical(
                 self,
@@ -7567,6 +7539,8 @@ class SimulationVisualizer(QMainWindow):
                 f"{Path(path).name} could not be read.\n\n{exc}",
             )
             self.set_status("Simulation CSV load failed: file could not be read")
+            self._simulation_csv_loading = False
+            self._finish_loading_overlay_if_ready()
             return False
         except csv.Error as exc:
             QMessageBox.critical(
@@ -7575,6 +7549,8 @@ class SimulationVisualizer(QMainWindow):
                 f"{Path(path).name} is not a valid CSV file.\n\n{exc}",
             )
             self.set_status("Simulation CSV load failed: invalid CSV")
+            self._simulation_csv_loading = False
+            self._finish_loading_overlay_if_ready()
             return False
         except Exception as exc:
             QMessageBox.critical(
@@ -7583,6 +7559,8 @@ class SimulationVisualizer(QMainWindow):
                 f"{Path(path).name} could not be loaded.\n\n{exc}",
             )
             self.set_status("Simulation CSV load failed")
+            self._simulation_csv_loading = False
+            self._finish_loading_overlay_if_ready()
             return False
 
         self.current_csv_path = path
@@ -7595,14 +7573,19 @@ class SimulationVisualizer(QMainWindow):
             self.current_csv_path = None
             self.update_loaded_files()
             self.set_status("Simulation CSV load failed: no timestamped event rows")
+            self._simulation_csv_loading = False
+            self._finish_loading_overlay_if_ready()
             return False
         self.update_loaded_files()
         self._sync_timeline_from_layout_and_csv()
         self.on_timeline_zoom_changed(self.timeline_zoom_combo.currentText())
         self.refresh_all()
+        self.fit_view()
         self.set_status(
             f"Loaded simulation CSV {Path(path).name} with {len(self.sim_log.events)} events"
         )
+        self._simulation_csv_loading = False
+        self._finish_loading_overlay_if_ready()
         return True
 
     def open_csv(self):
@@ -7653,7 +7636,7 @@ class SimulationVisualizer(QMainWindow):
         content_rect = QRectF(rect_left, rect_top, rect_width, rect_height)
 
         self.view.resetTransform()
-        self.view.fitInView(content_rect, Qt.KeepAspectRatio)
+        self.view.fitInView(content_rect, Qt.AspectRatioMode.KeepAspectRatio)
 
         pad = max(rect_width, rect_height, 1000.0) * 20.0
         self.graphics_scene.setSceneRect(content_rect.adjusted(-pad, -pad, pad, pad))
@@ -7839,8 +7822,6 @@ class SimulationVisualizer(QMainWindow):
         for segment in segments:
             label = (segment.get("label") or "").strip().lower()
             event_type = (segment.get("event_type") or "").strip().lower()
-            segment_type = (segment.get("segment_type") or "").strip().lower()
-
             # Ignore bookkeeping rows that should not inflate task duration.
             if label in {"task assigned", "task complete", "task overrun"}:
                 continue
@@ -8235,7 +8216,7 @@ class SimulationVisualizer(QMainWindow):
             return
 
         dialog = TasksByLocationDepartmentDialog(self, rows)
-        if dialog.exec() != QDialog.Accepted:
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
         if dialog.selected_time is not None:
@@ -8408,7 +8389,7 @@ class SimulationVisualizer(QMainWindow):
             return
 
         dialog = TaskJumpDialog(self, grouped_tasks)
-        if dialog.exec() != QDialog.Accepted:
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
         if dialog.selected_start_time is None:
@@ -8600,7 +8581,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         default_format.setSamples(4)
         default_format.setSwapInterval(1)
         QSurfaceFormat.setDefaultFormat(default_format)
-        QApplication.setAttribute(Qt.AA_ShareOpenGLContexts, True)
+        QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
 
     app = QApplication(sys.argv)
     configure_application_font(app)

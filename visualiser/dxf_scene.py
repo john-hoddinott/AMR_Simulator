@@ -446,8 +446,8 @@ class DXFScene:
 
                 font = QFont("Arial")
                 font.setPointSizeF(10.0)
-                font.setStyleStrategy(QFont.PreferAntialias)
-                font.setHintingPreference(QFont.PreferFullHinting)
+                font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+                font.setHintingPreference(QFont.HintingPreference.PreferFullHinting)
                 item.setFont(font)
 
                 bounds = item.boundingRect()
@@ -457,30 +457,30 @@ class DXFScene:
 
                 item.setPos(x, -y)
                 item.setRotation(-float(entity.get("rotation", 0.0)))
-                item.setCacheMode(QGraphicsItem.NoCache)
+                item.setCacheMode(QGraphicsItem.CacheMode.NoCache)
                 text_items.append(item)
 
         if not line_path.isEmpty():
             item = QGraphicsPathItem(line_path)
             item.setPen(pen_line)
-            item.setBrush(Qt.NoBrush)
-            item.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
+            item.setBrush(Qt.BrushStyle.NoBrush)
+            item.setCacheMode(QGraphicsItem.CacheMode.DeviceCoordinateCache)
             scene.addItem(item)
             created_items.append(item)
 
         if not poly_path.isEmpty():
             item = QGraphicsPathItem(poly_path)
             item.setPen(pen_poly)
-            item.setBrush(Qt.NoBrush)
-            item.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
+            item.setBrush(Qt.BrushStyle.NoBrush)
+            item.setCacheMode(QGraphicsItem.CacheMode.DeviceCoordinateCache)
             scene.addItem(item)
             created_items.append(item)
 
         if not arc_path.isEmpty():
             item = QGraphicsPathItem(arc_path)
             item.setPen(pen_arc)
-            item.setBrush(Qt.NoBrush)
-            item.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
+            item.setBrush(Qt.BrushStyle.NoBrush)
+            item.setCacheMode(QGraphicsItem.CacheMode.DeviceCoordinateCache)
             scene.addItem(item)
             created_items.append(item)
 

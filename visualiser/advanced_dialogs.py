@@ -6,7 +6,7 @@ from functools import partial
 
 
 from PySide6.QtCore import QDate, QDateTime, QPoint, Qt, Signal
-from PySide6.QtGui import QAction, QColor, QBrush
+from PySide6.QtGui import QColor, QBrush
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -18,14 +18,12 @@ from PySide6.QtWidgets import (
     QDateTimeEdit,
     QFormLayout,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
-    QListWidgetItem,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -36,8 +34,6 @@ from PySide6.QtWidgets import (
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
-    QTreeWidget,
-    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
     QSizePolicy,
@@ -133,7 +129,7 @@ def _date_time_input(value=None):
     edit = QDateTimeEdit()
     edit.setCalendarPopup(True)
     edit.setDisplayFormat("yyyy-MM-dd HH:mm:ss")
-    parsed = QDateTime.fromString(str(value or ""), Qt.ISODate)
+    parsed = QDateTime.fromString(str(value or ""), Qt.DateFormat.ISODate)
     if not parsed.isValid():
         parsed = QDateTime.currentDateTime()
     edit.setDateTime(parsed)
@@ -163,7 +159,7 @@ class TaskCellButton(QToolButton):
     doubleClicked = Signal()
 
     def mouseDoubleClickEvent(self, event):
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             self.doubleClicked.emit()
             event.accept()
             return
@@ -208,7 +204,7 @@ class MultiSelectPicker(QDialog):
             tools.addWidget(btn)
         tools.addStretch(1)
         self.selection_summary = QLabel()
-        self.selection_summary.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.selection_summary.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         tools.addWidget(self.selection_summary)
 
         self.scroll = QScrollArea()
@@ -219,7 +215,7 @@ class MultiSelectPicker(QDialog):
         self.scroll.setWidget(self.container)
         layout.addWidget(self.scroll, 1)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.finish)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -255,10 +251,10 @@ class MultiSelectPicker(QDialog):
             btn_all.setFixedWidth(52)
             btn_none.setFixedWidth(52)
             btn_all.clicked.connect(
-                lambda _=False, its=items: self._set_items(its, True)
+                lambda _=False, its=tuple(items): self._set_items(its, True)
             )
             btn_none.clicked.connect(
-                lambda _=False, its=items: self._set_items(its, False)
+                lambda _=False, its=tuple(items): self._set_items(its, False)
             )
             header.addWidget(btn_all)
             header.addWidget(btn_none)
@@ -495,7 +491,7 @@ class RouteProfilesEditorV2(QDialog):
             "allowed_edges": [],
         }
         self.profile_list.addItem(name)
-        items = self.profile_list.findItems(name, Qt.MatchExactly)
+        items = self.profile_list.findItems(name, Qt.MatchFlag.MatchExactly)
         if items:
             self.profile_list.setCurrentItem(items[0])
 
@@ -524,7 +520,7 @@ class RouteProfilesEditorV2(QDialog):
             self.allowed_lifts,
             group_resolver=self._group_for_item,
         )
-        if picker.exec() == QDialog.Accepted and picker.result is not None:
+        if picker.exec() == QDialog.DialogCode.Accepted and picker.result is not None:
             self.allowed_lifts = sorted(picker.result)
             self.lifts_summary.setText(self.summarize(self.allowed_lifts))
 
@@ -536,7 +532,7 @@ class RouteProfilesEditorV2(QDialog):
             self.allowed_nodes,
             group_resolver=self._group_for_item,
         )
-        if picker.exec() == QDialog.Accepted and picker.result is not None:
+        if picker.exec() == QDialog.DialogCode.Accepted and picker.result is not None:
             self.allowed_nodes = sorted(picker.result)
             self.nodes_summary.setText(self.summarize(self.allowed_nodes))
 
@@ -709,7 +705,7 @@ class TaskFormDialog(QDialog):
         form.addRow("Default selection policy", self.delivery_selection_combo)
         form.addRow("Scheduled preferences", self.preference_schedule_edit)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -724,7 +720,7 @@ class TaskFormDialog(QDialog):
             selected=[current_text] if current_text else [],
             group_resolver=self.group_resolver,
         )
-        if picker.exec() == QDialog.Accepted and picker.result:
+        if picker.exec() == QDialog.DialogCode.Accepted and picker.result:
             return picker.result[0]
         return None
 
@@ -828,7 +824,7 @@ class BulkOneToManyTaskDialog(QDialog):
         form.addRow("Route profile", self.route_combo)
         form.addRow("Delivery resource", self.delivery_resource_combo)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -842,7 +838,7 @@ class BulkOneToManyTaskDialog(QDialog):
             selected=self.selected_dropoffs,
             group_resolver=self.group_resolver,
         )
-        if picker.exec() == QDialog.Accepted and picker.result is not None:
+        if picker.exec() == QDialog.DialogCode.Accepted and picker.result is not None:
             self.selected_dropoffs = sorted(picker.result)
             if not self.selected_dropoffs:
                 self.dropoff_summary.setText("None selected")
@@ -932,7 +928,7 @@ class MultiDaySelectDialog(QDialog):
         self.summary_label = QLabel("No days selected")
         footer.addWidget(self.summary_label)
         footer.addStretch(1)
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.finish)
         buttons.rejected.connect(self.reject)
         footer.addWidget(buttons)
@@ -975,7 +971,7 @@ class MultiDaySelectDialog(QDialog):
 
     def on_day_clicked(self, qdate):
         date_obj = datetime(qdate.year(), qdate.month(), qdate.day()).date()
-        extend_range = bool(QApplication.keyboardModifiers() & Qt.ShiftModifier)
+        extend_range = bool(QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier)
         key = date_obj.isoformat()
         if extend_range and self.last_clicked_date is not None:
             start_date = min(self.last_clicked_date, date_obj)
@@ -1090,15 +1086,15 @@ class TaskPlannerDialog(QMainWindow):
         self.table = QTableWidget(0, 25)
         headers = ["Departments / drop-off"] + [f"{h:02d}:00" for h in range(24)]
         self.table.setHorizontalHeaderLabels(headers)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectItems)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Fixed)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
         self.table.horizontalHeader().setDefaultSectionSize(90)
         self.table.setColumnWidth(0, 220)
         self.table.verticalHeader().setVisible(False)
         self.table.cellDoubleClicked.connect(self.on_cell_double_clicked)
         self.table.cellClicked.connect(self.on_cell_clicked)
-        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self.on_context_menu)
         layout.addWidget(self.table, 1)
 
@@ -1111,8 +1107,8 @@ class TaskPlannerDialog(QMainWindow):
 
     def _make_vline(self):
         line = QFrame()
-        line.setFrameShape(QFrame.VLine)
-        line.setFrameShadow(QFrame.Sunken)
+        line.setFrameShape(QFrame.Shape.VLine)
+        line.setFrameShadow(QFrame.Shadow.Sunken)
         return line
 
     def _build_grouped_rows(self):
@@ -1174,8 +1170,8 @@ class TaskPlannerDialog(QMainWindow):
         for lane_index, (task_index, task) in enumerate(task_entries):
             btn = TaskCellButton(container)
             btn.setText(f"{task.get('id', '')}  {task.get('pickup', '')}")
-            btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
-            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             btn.setMinimumHeight(22)
             btn.setStyleSheet(f"""
                 QToolButton {{
@@ -1196,7 +1192,7 @@ class TaskPlannerDialog(QMainWindow):
             btn.doubleClicked.connect(
                 partial(self._edit_task_from_cell, task_index, row_name)
             )
-            btn.setContextMenuPolicy(Qt.CustomContextMenu)
+            btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             btn.customContextMenuRequested.connect(
                 partial(
                     self._show_task_button_context_menu,
@@ -1227,7 +1223,7 @@ class TaskPlannerDialog(QMainWindow):
             default_task_id=self.items[task_index].get("id", self._next_task_id()),
             group_resolver=self._group_for_location,
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             self.items[task_index] = dialog.result
             self.selected_task_index = task_index
             self.selected_row_name = dialog.result.get("dropoff", "")
@@ -1301,7 +1297,7 @@ class TaskPlannerDialog(QMainWindow):
 
             if kind == "header":
                 label_item.setBackground(QBrush(QColor("#d0d7e5")))
-                label_item.setFlags(Qt.ItemIsEnabled)
+                label_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
                 self.table.setSpan(row, 0, 1, 25)
                 self.table.setItem(row, 0, label_item)
                 self.table.setRowHeight(row, 28)
@@ -1312,7 +1308,7 @@ class TaskPlannerDialog(QMainWindow):
 
             for col in range(1, 25):
                 placeholder = QTableWidgetItem("")
-                placeholder.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+                placeholder.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
                 self.table.setItem(row, col, placeholder)
                 self.table.removeCellWidget(row, col)
 
@@ -1408,7 +1404,7 @@ class TaskPlannerDialog(QMainWindow):
                 default_task_id=self.items[task_index].get("id", self._next_task_id()),
                 group_resolver=self._group_for_location,
             )
-            if dialog.exec() == QDialog.Accepted and dialog.result:
+            if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
                 self.items[task_index] = dialog.result
                 self.selected_task_index = task_index
                 self.selected_row_name = dialog.result.get("dropoff", "")
@@ -1432,7 +1428,7 @@ class TaskPlannerDialog(QMainWindow):
             default_task_id=self._next_task_id(),
             group_resolver=self._group_for_location,
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             self.items.append(dialog.result)
             self.selected_task_index = len(self.items) - 1
             self.selected_row_name = dialog.result.get("dropoff", "")
@@ -1499,7 +1495,7 @@ class TaskPlannerDialog(QMainWindow):
             default_task_id=self._next_task_id(),
             group_resolver=self._group_for_location,
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             self.items.append(dialog.result)
             self.selected_task_index = len(self.items) - 1
             self.selected_row_name = row_name
@@ -1546,7 +1542,7 @@ class TaskPlannerDialog(QMainWindow):
             QMessageBox.question(
                 self, "Delete task", f"Delete task {task.get('id', '')}?"
             )
-            != QMessageBox.Yes
+            != QMessageBox.StandardButton.Yes
         ):
             return
         del self.items[self.selected_task_index]
@@ -1593,7 +1589,7 @@ class TaskPlannerDialog(QMainWindow):
         picker = MultiDaySelectDialog(
             self, initial_date=source_day_start + timedelta(days=1)
         )
-        if picker.exec() != QDialog.Accepted or not picker.result:
+        if picker.exec() != QDialog.DialogCode.Accepted or not picker.result:
             return
         target_day_starts = []
         for text in picker.result:
@@ -1628,7 +1624,7 @@ class TaskPlannerDialog(QMainWindow):
                     + "\n".join(existing_summary)
                     + "\n\nCopy the current day's tasks as additional tasks?",
                 )
-                != QMessageBox.Yes
+                != QMessageBox.StandardButton.Yes
             ):
                 return
         if (
@@ -1637,7 +1633,7 @@ class TaskPlannerDialog(QMainWindow):
                 "Confirm copy day",
                 f"Copy {len(source_tasks)} task(s) from {source_day_start.strftime('%Y-%m-%d')} to {len(target_day_starts)} selected day(s)?",
             )
-            != QMessageBox.Yes
+            != QMessageBox.StandardButton.Yes
         ):
             return
         reserved_ids = {str(task.get("id", "")) for task in self.items}
@@ -1726,7 +1722,7 @@ class EditMultipleTasksDialog(QDialog):
         delivery_resource_row.addWidget(self.delivery_resource_combo, 1)
         form.addRow("Delivery resource", delivery_resource_row)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -1805,13 +1801,13 @@ class TaskEditorWindow(QMainWindow):
 
         self.table = QTableWidget(0, len(self.columns))
         self.table.setHorizontalHeaderLabels([c[1] for c in self.columns])
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.cellDoubleClicked.connect(self._on_tree_double_click)
-        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         for idx, (_key, _heading, width) in enumerate(self.columns):
             self.table.setColumnWidth(idx, width)
         layout.addWidget(self.table)
@@ -1905,7 +1901,7 @@ class TaskEditorWindow(QMainWindow):
             default_task_id=self._next_task_id(),
             group_resolver=self._group_for_location,
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             self.items.append(dialog.result)
             self._insert_tree_item(dialog.result)
 
@@ -1929,7 +1925,7 @@ class TaskEditorWindow(QMainWindow):
                 "route_profile": first_task.get("route_profile", ""),
             },
         )
-        if dialog.exec() != QDialog.Accepted or not dialog.result:
+        if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.result:
             return
 
         updates = dialog.result
@@ -1956,7 +1952,7 @@ class TaskEditorWindow(QMainWindow):
             default_task_id=self.items[idx].get("id", self._next_task_id()),
             group_resolver=self._group_for_location,
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             self.items[idx] = dialog.result
             self._refresh_table()
             self.table.selectRow(idx)
@@ -2055,7 +2051,7 @@ class TaskEditorWindow(QMainWindow):
             group_resolver=self._group_for_location,
             default_task_id=self._next_task_id(),
         )
-        if dialog.exec() != QDialog.Accepted or not dialog.result:
+        if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.result:
             return
         payload = dialog.result
         reserved_ids = {str(task.get("id", "")) for task in self.items}

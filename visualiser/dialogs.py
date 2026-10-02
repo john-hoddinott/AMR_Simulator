@@ -1,7 +1,7 @@
 import csv
 import json
 import math
-from typing import Any, List, Optional
+from typing import Any
 
 from advanced_dialogs import (
     MultiSelectPicker,
@@ -223,7 +223,7 @@ class PeopleProfilePreview(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimumHeight(170)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.values = {
             "shape": "constant",
             "minimum": 0,
@@ -264,7 +264,7 @@ class PeopleProfilePreview(QWidget):
 
     def paintEvent(self, _event):
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         rect = self.rect().adjusted(12, 10, -12, -12)
         painter.fillRect(rect, self.palette().base())
         painter.setPen(QPen(self.palette().mid().color(), 1))
@@ -318,21 +318,21 @@ def _dialog_intro(text: str) -> QLabel:
     label = QLabel(text)
     label.setWordWrap(True)
     label.setObjectName("dialogIntro")
-    label.setFrameShape(QFrame.StyledPanel)
+    label.setFrameShape(QFrame.Shape.StyledPanel)
     label.setContentsMargins(10, 8, 10, 8)
     return label
 
 
 def _configure_data_table(table: QTableWidget, *, extended=False) -> None:
-    table.setSelectionBehavior(QAbstractItemView.SelectRows)
+    table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
     table.setSelectionMode(
-        QAbstractItemView.ExtendedSelection if extended else QAbstractItemView.SingleSelection
+        QAbstractItemView.SelectionMode.ExtendedSelection if extended else QAbstractItemView.SelectionMode.SingleSelection
     )
     table.setAlternatingRowColors(True)
-    table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+    table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
     table.verticalHeader().setVisible(False)
     table.horizontalHeader().setStretchLastSection(True)
-    table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+    table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
 
 
 def _double_input(
@@ -434,7 +434,7 @@ class ScheduledTimesDialog(QDialog):
         btn_row.addWidget(sort_btn)
         btn_row.addStretch(1)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -473,12 +473,12 @@ class ScheduledTimesDialog(QDialog):
                 continue
 
             header = QListWidgetItem(f"{hour:02d}:00")
-            header.setFlags(Qt.ItemIsEnabled)
+            header.setFlags(Qt.ItemFlag.ItemIsEnabled)
             self.list_widget.addItem(header)
 
             for value in hour_times:
                 item = QListWidgetItem(f"    {value}")
-                item.setData(Qt.UserRole, value)
+                item.setData(Qt.ItemDataRole.UserRole, value)
                 self.list_widget.addItem(item)
 
     def accept(self):
@@ -594,7 +594,7 @@ class StaffWeeklyHoursDialog(QDialog):
             grid.addWidget(end_edit, row_index, 3)
         layout.addLayout(grid)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -745,7 +745,7 @@ class GlobalStaffConfigDialog(QDialog):
         cycle_label.setWordWrap(True)
         rotating_form.addRow("Cycle", cycle_label)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -1284,7 +1284,7 @@ class BulkDepartmentTaskGenerationDialog(QDialog):
         self.waste_stream_notice_label.setWordWrap(True)
         layout.addWidget(self.waste_stream_notice_label)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -1308,7 +1308,7 @@ class BulkDepartmentTaskGenerationDialog(QDialog):
             self.staff_use_custom_working_hours,
             self.staff_working_hours,
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result is not None:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result is not None:
             self.staff_use_custom_working_hours = bool(
                 dialog.result.get("use_custom", False)
             )
@@ -1529,7 +1529,7 @@ class BulkDepartmentTaskGenerationDialog(QDialog):
             group_resolver=lambda item: label_to_group.get(item, "Departments"),
         )
 
-        if picker.exec() == QDialog.Accepted and picker.result is not None:
+        if picker.exec() == QDialog.DialogCode.Accepted and picker.result is not None:
             self.selected_pickup_locations = sorted(
                 {
                     label_to_location[label]
@@ -1664,7 +1664,7 @@ class BulkDepartmentTaskGenerationDialog(QDialog):
             group_resolver=lambda item: floor_by_label.get(item, "Other"),
         )
 
-        if picker.exec() == QDialog.Accepted and picker.result is not None:
+        if picker.exec() == QDialog.DialogCode.Accepted and picker.result is not None:
             self.selected_department_ids = [
                 label_by_id[x] for x in picker.result if x in label_by_id
             ]
@@ -1699,7 +1699,7 @@ class BulkDepartmentTaskGenerationDialog(QDialog):
             selected=self.selected_dropoffs,
             group_resolver=lambda item: "Locations",
         )
-        if picker.exec() == QDialog.Accepted and picker.result is not None:
+        if picker.exec() == QDialog.DialogCode.Accepted and picker.result is not None:
             self.selected_dropoffs = sorted(picker.result)
             self.refresh_dropoff_summary()
 
@@ -1717,7 +1717,7 @@ class BulkDepartmentTaskGenerationDialog(QDialog):
 
     def edit_scheduled_times(self):
         dialog = ScheduledTimesDialog(self, self.scheduled_times)
-        if dialog.exec() == QDialog.Accepted and dialog.result is not None:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result is not None:
             self.scheduled_times = list(dialog.result)
             self.refresh_schedule_summary()
 
@@ -1881,20 +1881,20 @@ class ConfiguredGroupSelectDialog(QDialog):
 
         self.list_widget = QListWidget()
         self.list_widget.setWordWrap(True)
-        self.list_widget.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.list_widget.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.list_widget.itemDoubleClicked.connect(lambda _item: self.accept())
         layout.addWidget(self.list_widget, 1)
 
         for signature, group in groups.items():
             item = QListWidgetItem(label_builder(group))
-            item.setData(Qt.UserRole, signature)
+            item.setData(Qt.ItemDataRole.UserRole, signature)
             item.setSizeHint(item.sizeHint())
             self.list_widget.addItem(item)
 
         if self.list_widget.count():
             self.list_widget.setCurrentRow(0)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -1904,7 +1904,7 @@ class ConfiguredGroupSelectDialog(QDialog):
         item = self.list_widget.currentItem()
         if item is None:
             return
-        self.result_key = item.data(Qt.UserRole)
+        self.result_key = item.data(Qt.ItemDataRole.UserRole)
         super().accept()
 
 
@@ -2056,7 +2056,7 @@ class TaskGenerationSettingsDialog(QDialog):
         right.setWidget(container)
         form = QFormLayout(container)
         self.form = form
-        form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
 
         self.enabled_check = QCheckBox("Enabled")
         self.display_name_edit = QLineEdit()
@@ -2302,7 +2302,7 @@ class TaskGenerationSettingsDialog(QDialog):
         help_label.setWordWrap(True)
         layout.addWidget(help_label)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -2322,7 +2322,7 @@ class TaskGenerationSettingsDialog(QDialog):
             self.category_list.setCurrentRow(0)
             current = self.category_list.currentItem()
             if current is not None:
-                self.current_key = current.data(Qt.UserRole)
+                self.current_key = current.data(Qt.ItemDataRole.UserRole)
 
         self.current_department_id = ""
 
@@ -2342,7 +2342,7 @@ class TaskGenerationSettingsDialog(QDialog):
             self.staff_use_custom_working_hours,
             self.staff_working_hours,
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result is not None:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result is not None:
             self.staff_use_custom_working_hours = bool(
                 dialog.result.get("use_custom", False)
             )
@@ -2648,7 +2648,7 @@ class TaskGenerationSettingsDialog(QDialog):
                 "Clear department settings",
                 message,
             )
-            != QMessageBox.Yes
+            != QMessageBox.StandardButton.Yes
         ):
             return
 
@@ -2710,7 +2710,7 @@ class TaskGenerationSettingsDialog(QDialog):
             self._configured_group_label,
         )
 
-        if dialog.exec() != QDialog.Accepted or not dialog.result_key:
+        if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.result_key:
             return
 
         group = groups[dialog.result_key]
@@ -2726,7 +2726,7 @@ class TaskGenerationSettingsDialog(QDialog):
                     + ("..." if len(dept_ids) > 12 else "")
                 ),
             )
-            != QMessageBox.Yes
+            != QMessageBox.StandardButton.Yes
         ):
             return
 
@@ -2743,7 +2743,7 @@ class TaskGenerationSettingsDialog(QDialog):
 
         for index in range(self.department_list.count()):
             item = self.department_list.item(index)
-            dept_id = str(item.data(Qt.UserRole) or "").strip()
+            dept_id = str(item.data(Qt.ItemDataRole.UserRole) or "").strip()
             if dept_id and dept_id not in dept_ids:
                 remaining_dept = dept_id
                 break
@@ -2753,7 +2753,7 @@ class TaskGenerationSettingsDialog(QDialog):
 
         if self.department_list.count() > 0:
             current = self.department_list.currentItem()
-            self.current_department_id = current.data(Qt.UserRole) if current else ""
+            self.current_department_id = current.data(Qt.ItemDataRole.UserRole) if current else ""
             self.current_department_id = self.current_department_id or ""
             self._load_category(self.current_key)
         else:
@@ -2813,7 +2813,7 @@ class TaskGenerationSettingsDialog(QDialog):
             self._configured_group_label,
         )
 
-        if dialog.exec() != QDialog.Accepted or not dialog.result_key:
+        if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.result_key:
             return
 
         group_id = str(dialog.result_key).strip()
@@ -2831,7 +2831,7 @@ class TaskGenerationSettingsDialog(QDialog):
                     + ("..." if len(dept_ids) > 12 else "")
                 ),
             )
-            != QMessageBox.Yes
+            != QMessageBox.StandardButton.Yes
         ):
             return
 
@@ -3098,7 +3098,7 @@ class TaskGenerationSettingsDialog(QDialog):
             self._configured_group_label,
         )
 
-        if dialog.exec() != QDialog.Accepted or not dialog.result_key:
+        if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.result_key:
             return
 
         group = groups[dialog.result_key]
@@ -3122,7 +3122,7 @@ class TaskGenerationSettingsDialog(QDialog):
             result_key=dialog.result_key,
         )
 
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             result_dept_ids = sorted(dialog.result.keys())
             result_payload = next(iter(dialog.result.values()))
 
@@ -3190,7 +3190,7 @@ class TaskGenerationSettingsDialog(QDialog):
 
         for row_index, (dept_id, dept) in enumerate(valid_departments):
             item = QListWidgetItem(self._department_label(dept))
-            item.setData(Qt.UserRole, dept_id)
+            item.setData(Qt.ItemDataRole.UserRole, dept_id)
             self.department_list.addItem(item)
 
             if dept_id == current_dept_id:
@@ -3201,7 +3201,7 @@ class TaskGenerationSettingsDialog(QDialog):
         if self.department_list.count() > 0:
             self.department_list.setCurrentRow(selected_row)
             current = self.department_list.currentItem()
-            self.current_department_id = current.data(Qt.UserRole) if current else ""
+            self.current_department_id = current.data(Qt.ItemDataRole.UserRole) if current else ""
             self.current_department_id = self.current_department_id or ""
         else:
             self.current_department_id = ""
@@ -3236,7 +3236,7 @@ class TaskGenerationSettingsDialog(QDialog):
             profile_names=self.profile_names,
         )
 
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             category = self.config.setdefault("categories", {}).setdefault(
                 self.current_key, {}
             )
@@ -3262,7 +3262,7 @@ class TaskGenerationSettingsDialog(QDialog):
             return
 
         if previous is not None and self.current_key:
-            previous_dept_id = str(previous.data(Qt.UserRole) or "").strip()
+            previous_dept_id = str(previous.data(Qt.ItemDataRole.UserRole) or "").strip()
 
             if previous_dept_id and self._current_form_has_generation_settings():
                 try:
@@ -3278,7 +3278,7 @@ class TaskGenerationSettingsDialog(QDialog):
                     QMessageBox.critical(self, "Invalid department settings", str(exc))
                     return
 
-        self.current_department_id = current.data(Qt.UserRole) if current else ""
+        self.current_department_id = current.data(Qt.ItemDataRole.UserRole) if current else ""
         self.current_department_id = self.current_department_id or ""
 
         if self.current_key:
@@ -3312,7 +3312,7 @@ class TaskGenerationSettingsDialog(QDialog):
 
     def edit_scheduled_times(self):
         dialog = ScheduledTimesDialog(self, self.scheduled_times)
-        if dialog.exec() == QDialog.Accepted and dialog.result is not None:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result is not None:
             self.scheduled_times = list(dialog.result)
             self._refresh_schedule_summary()
 
@@ -3349,7 +3349,7 @@ class TaskGenerationSettingsDialog(QDialog):
         selected_row = 0
         for row, (key, label) in enumerate(self._category_label_pairs()):
             item = QListWidgetItem(label)
-            item.setData(Qt.UserRole, key)
+            item.setData(Qt.ItemDataRole.UserRole, key)
             self.category_list.addItem(item)
             if key == current_key:
                 selected_row = row
@@ -3358,7 +3358,7 @@ class TaskGenerationSettingsDialog(QDialog):
             self.category_list.setCurrentRow(selected_row)
             current = self.category_list.currentItem()
             if current is not None:
-                self.current_key = current.data(Qt.UserRole)
+                self.current_key = current.data(Qt.ItemDataRole.UserRole)
                 self._load_category(self.current_key)
 
     def _slugify_category_key(self, value):
@@ -3394,7 +3394,7 @@ class TaskGenerationSettingsDialog(QDialog):
         item = self.category_list.currentItem()
         if item is None:
             return
-        key = item.data(Qt.UserRole)
+        key = item.data(Qt.ItemDataRole.UserRole)
         label = item.text()
         if key == "waste":
             QMessageBox.critical(
@@ -3409,7 +3409,7 @@ class TaskGenerationSettingsDialog(QDialog):
                 "Delete category",
                 f"Delete logistics category '{label}'?",
             )
-            != QMessageBox.Yes
+            != QMessageBox.StandardButton.Yes
         ):
             return
         self.config.setdefault("categories", {}).pop(key, None)
@@ -3424,7 +3424,7 @@ class TaskGenerationSettingsDialog(QDialog):
             selected=self.selected_dropoffs,
             group_resolver=lambda item: "Locations",
         )
-        if picker.exec() == QDialog.Accepted and picker.result is not None:
+        if picker.exec() == QDialog.DialogCode.Accepted and picker.result is not None:
             self.selected_dropoffs = sorted(picker.result)
             self._refresh_dropoff_summary()
 
@@ -3499,7 +3499,7 @@ class TaskGenerationSettingsDialog(QDialog):
 
     def edit_global_staff_config(self):
         dialog = GlobalStaffConfigDialog(self, self.staff_config)
-        if dialog.exec() == QDialog.Accepted and dialog.result is not None:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result is not None:
             self.staff_config = self._normalise_global_staff_config(dialog.result)
             self.config["staff_config"] = json.loads(json.dumps(self.staff_config))
             self._refresh_global_staff_summary()
@@ -3658,7 +3658,7 @@ class TaskGenerationSettingsDialog(QDialog):
         # Save the form into the previous category key and update the previous
         # list item only.
         if previous is not None:
-            previous_key = previous.data(Qt.UserRole)
+            previous_key = previous.data(Qt.ItemDataRole.UserRole)
             try:
                 self._store_category(
                     previous_key,
@@ -3676,7 +3676,7 @@ class TaskGenerationSettingsDialog(QDialog):
             self.current_key = None
             return
 
-        self.current_key = current.data(Qt.UserRole)
+        self.current_key = current.data(Qt.ItemDataRole.UserRole)
 
         self._loading = True
         self._refresh_department_list(select_dept_id=self.current_department_id)
@@ -3684,7 +3684,7 @@ class TaskGenerationSettingsDialog(QDialog):
         if self.department_list.count() > 0:
             current_dept = self.department_list.currentItem()
             self.current_department_id = (
-                current_dept.data(Qt.UserRole) if current_dept else ""
+                current_dept.data(Qt.ItemDataRole.UserRole) if current_dept else ""
             )
             self.current_department_id = self.current_department_id or ""
             self._load_category(self.current_key)
@@ -4347,7 +4347,7 @@ class PointEditorDialog(QDialog):
             self.has_door_check.toggled.connect(self._update_door_controls)
             self._update_door_controls()
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -4421,10 +4421,10 @@ class EdgeConnectionsDialog(QDialog):
         self.table.setHorizontalHeaderLabels(
             [heading for _key, heading, _width in self.columns]
         )
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         for idx, (_key, _heading, width) in enumerate(self.columns):
             self.table.setColumnWidth(idx, width)
         layout.addWidget(self.table, 1)
@@ -4484,7 +4484,7 @@ class EdgeConnectionsDialog(QDialog):
                 "Delete edges",
                 f"Delete {len(selected_edges)} selected edge connection(s)?",
             )
-            != QMessageBox.Yes
+            != QMessageBox.StandardButton.Yes
         ):
             return
         self.on_delete(selected_edges)
@@ -4702,7 +4702,7 @@ class LiftEditorDialog(QDialog):
         self.floors_edit.textChanged.connect(self._refresh_positions_preview)
         self._refresh_positions_preview()
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -4853,9 +4853,9 @@ class LiftListDialog(QDialog):
                 "Start floor",
             ]
         )
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         layout.addWidget(self.table)
 
         buttons = QHBoxLayout()
@@ -4975,7 +4975,7 @@ class LiftListDialog(QDialog):
         lift_id = str(lift.get("id", "")).strip()
         if not lift_id:
             return
-        if QMessageBox.question(self, "Delete lift", f"Delete {lift_id}?") != QMessageBox.Yes:
+        if QMessageBox.question(self, "Delete lift", f"Delete {lift_id}?") != QMessageBox.StandardButton.Yes:
             return
         self.store.delete_lift(lift_id)
         self.on_changed()
@@ -5115,7 +5115,7 @@ class AMRPayloadSlotDialog(QDialog):
                 "and whether a corridor must operate as a single lane."
             )
         )
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -5296,7 +5296,7 @@ class AMREditorDialog(QDialog):
         )
         slots_layout.addWidget(self.multi_stop_check)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -5350,7 +5350,7 @@ class AMREditorDialog(QDialog):
             self,
             default_name=f"Slot {len(self.payload_slots) + 1}",
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             self.payload_slots.append(dialog.result)
             self._refresh_slots_table()
             self.slots_table.selectRow(len(self.payload_slots) - 1)
@@ -5360,7 +5360,7 @@ class AMREditorDialog(QDialog):
         if row is None:
             return
         dialog = AMRPayloadSlotDialog(self, self.payload_slots[row])
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             self.payload_slots[row] = dialog.result
             self._refresh_slots_table()
             self.slots_table.selectRow(row)
@@ -5391,7 +5391,7 @@ class AMREditorDialog(QDialog):
             self,
             "Delete payload slot",
             f"Delete '{self.payload_slots[row].get('name', f'Slot {row + 1}')}'?",
-        ) != QMessageBox.Yes:
+        ) != QMessageBox.StandardButton.Yes:
             return
         del self.payload_slots[row]
         self._refresh_slots_table()
@@ -5569,7 +5569,7 @@ class StaffDeliveryResourceEditorDialog(QDialog):
         form.addRow("Breaks (name, start, end)", self.breaks_edit)
         form.addRow("Capabilities", self.capabilities_edit)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -5712,7 +5712,7 @@ class PayloadTrackedItemDialog(QDialog):
         supply_form.addRow("Source location", source_widget)
         layout.addWidget(supply_box)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -5727,7 +5727,7 @@ class PayloadTrackedItemDialog(QDialog):
             selected=self.selected_source_locations,
             group_resolver=lambda _item: "Locations",
         )
-        if picker.exec() == QDialog.Accepted and picker.result is not None:
+        if picker.exec() == QDialog.DialogCode.Accepted and picker.result is not None:
             self.selected_source_locations = sorted(picker.result[:1])
             self.refresh_source_location_summary()
 
@@ -5908,7 +5908,7 @@ class PayloadEditorDialog(QDialog):
         item_buttons.addStretch(1)
         self.track_items_check.toggled.connect(self._update_contents_enabled)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -5980,7 +5980,7 @@ class PayloadEditorDialog(QDialog):
             payload_names=self.payload_names,
             location_names=self.location_names,
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             name = dialog.result["name"]
             if any(str(x.get("name", "")).strip() == name for x in self.tracked_items):
                 QMessageBox.warning(self, "Duplicate tracked item", "An item with this name already exists.")
@@ -6000,7 +6000,7 @@ class PayloadEditorDialog(QDialog):
             payload_names=self.payload_names,
             location_names=self.location_names,
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             name = dialog.result["name"]
             for idx, item in enumerate(self.tracked_items):
                 if idx != row and str(item.get("name", "")).strip() == name:
@@ -6020,7 +6020,7 @@ class PayloadEditorDialog(QDialog):
             self,
             "Delete tracked item",
             f"Delete '{item_name}' from this payload?",
-        ) != QMessageBox.Yes:
+        ) != QMessageBox.StandardButton.Yes:
             return
         del self.tracked_items[row]
         self._refresh_items_table()
@@ -6097,11 +6097,11 @@ class PayloadListDialog(QDialog):
         self.table.setHorizontalHeaderLabels(
             [heading for _key, heading, _width in self.columns]
         )
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.cellDoubleClicked.connect(lambda _row, _col: self.edit_item())
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
 
         for idx, (_key, _heading, width) in enumerate(self.columns):
             self.table.setColumnWidth(idx, width)
@@ -6187,7 +6187,7 @@ class PayloadListDialog(QDialog):
             payload_names=[x.get("name", "") for x in self.items],
             location_names=self.location_names,
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             name = dialog.result["name"]
             if any(str(x.get("name", "")).strip() == name for x in self.items):
                 QMessageBox.critical(self, "Duplicate", "Payload already exists")
@@ -6208,7 +6208,7 @@ class PayloadListDialog(QDialog):
             ],
             location_names=self.location_names,
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             new_name = dialog.result["name"]
             for idx, item in enumerate(self.items):
                 if idx != row and str(item.get("name", "")).strip() == new_name:
@@ -6265,11 +6265,11 @@ class DeliveryResourcesDialog(QDialog):
         ))
         self.table = QTableWidget(0, len(self.columns))
         self.table.setHorizontalHeaderLabels([heading for _key, heading, _width in self.columns])
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.cellDoubleClicked.connect(lambda _row, _col: self.edit_item())
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         for idx, (_key, _heading, width) in enumerate(self.columns):
             self.table.setColumnWidth(idx, width)
         layout.addWidget(self.table, 1)
@@ -6339,7 +6339,7 @@ class DeliveryResourcesDialog(QDialog):
         dialog = AMREditorDialog(
             self, self.location_names, default_amr_id=self._suggest_id("AMR")
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             if self._duplicate_id(dialog.result["id"]):
                 QMessageBox.critical(self, "Duplicate", "Delivery resource type already exists")
                 return
@@ -6352,7 +6352,7 @@ class DeliveryResourcesDialog(QDialog):
         dialog = StaffDeliveryResourceEditorDialog(
             self, self.location_names, default_id=self._suggest_id("PORTER")
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             if self._duplicate_id(dialog.result["id"]):
                 QMessageBox.critical(self, "Duplicate", "Delivery resource type already exists")
                 return
@@ -6370,7 +6370,7 @@ class DeliveryResourcesDialog(QDialog):
             dialog = StaffDeliveryResourceEditorDialog(self, self.location_names, seed=item)
         else:
             dialog = AMREditorDialog(self, self.location_names, seed=item)
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             if self._duplicate_id(dialog.result["id"], skip_row=row):
                 QMessageBox.critical(self, "Duplicate", "Delivery resource type already exists")
                 return
@@ -6427,11 +6427,11 @@ class AMRListDialog(QDialog):
         self.table.setHorizontalHeaderLabels(
             [heading for _key, heading, _width in self.columns]
         )
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.cellDoubleClicked.connect(lambda _row, _col: self.edit_item())
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
 
         for idx, (_key, _heading, width) in enumerate(self.columns):
             self.table.setColumnWidth(idx, width)
@@ -6492,7 +6492,7 @@ class AMRListDialog(QDialog):
             self.location_names,
             default_amr_id=self._suggest_next_amr_id(),
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             if any(x.get("id") == dialog.result["id"] for x in self.items):
                 QMessageBox.critical(self, "Duplicate", "AMR ID already exists")
                 return
@@ -6505,7 +6505,7 @@ class AMRListDialog(QDialog):
             return
 
         dialog = AMREditorDialog(self, self.location_names, seed=self.items[row])
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             new_id = dialog.result["id"]
             for idx, item in enumerate(self.items):
                 if idx != row and item.get("id") == new_id:
@@ -6542,9 +6542,9 @@ class TableListEditor(QMainWindow):
 
         self.table = QTableWidget(0, len(columns))
         self.table.setHorizontalHeaderLabels([c[1] for c in columns])
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         for idx, (_, _, width) in enumerate(columns):
             self.table.setColumnWidth(idx, width)
         layout.addWidget(self.table)
@@ -6645,7 +6645,7 @@ class TableListEditor(QMainWindow):
 
 
 class RouteProfilesEditor(QDialog):
-    def __init__(self, master, profiles, point_names, lift_ids, on_save):
+    def __init__(self, master, profiles, _point_names, _lift_ids, on_save):
         super().__init__(master)
         QMessageBox.information(
             self,
@@ -6715,7 +6715,7 @@ class PeopleMovementEditorDialog(QDialog):
         self._build_flow_tab(seed)
         self._build_interaction_tab(seed)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -7093,7 +7093,7 @@ class PeopleMovementEditorDialog(QDialog):
             selected=self.selected_corridors,
             group_resolver=lambda value: value.split(" -> ", 1)[0][:1].upper() or "Corridors",
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result is not None:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result is not None:
             self.selected_corridors = list(dialog.result)
             self._update_corridor_summary()
 
@@ -7215,7 +7215,7 @@ class PeopleMovementListDialog(QDialog):
                 button.setToolTip("Uses the corridor assets currently selected in the topology view.")
             row.addWidget(button)
         row.addStretch(1)
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         row.addWidget(buttons)
@@ -7303,7 +7303,7 @@ class PeopleMovementListDialog(QDialog):
 
     def add_item(self):
         dialog = self._open_editor({"id": self._next_profile_id()})
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             self.movements.append(dialog.result)
             self.refresh()
             self.table.selectRow(len(self.movements) - 1)
@@ -7313,7 +7313,7 @@ class PeopleMovementListDialog(QDialog):
             {"id": self._next_profile_id()},
             selected_corridors=self.initially_selected_corridors,
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             self.movements.append(dialog.result)
             self.refresh()
             self.table.selectRow(len(self.movements) - 1)
@@ -7324,7 +7324,7 @@ class PeopleMovementListDialog(QDialog):
             QMessageBox.information(self, "People movement", "Select a profile to edit.")
             return
         dialog = self._open_editor(self.movements[index])
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             self.movements[index] = dialog.result
             self.refresh()
             self.table.selectRow(index)
@@ -7361,7 +7361,7 @@ class PeopleMovementListDialog(QDialog):
             "Delete people movement profile",
             f"Delete {name}? Corridor assignments to this profile will be removed when the dialog is saved.",
         )
-        if answer == QMessageBox.Yes:
+        if answer == QMessageBox.StandardButton.Yes:
             del self.movements[index]
             self.refresh()
 
@@ -7516,7 +7516,7 @@ class ScenarioEventDialog(QDialog):
         )
         schedule_layout.addStretch(1)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -7634,7 +7634,7 @@ class ScenarioEventDialog(QDialog):
             options,
             selected=self.selected_resources,
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result is not None:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result is not None:
             self.selected_resources = list(dialog.result)
             self._update_resource_summary()
 
@@ -7752,7 +7752,7 @@ class ScenarioTestingDialog(QDialog):
         self.description_edit.setPlaceholderText(
             "State the purpose and assumptions, for example one passenger lift unavailable during visiting hours."
         )
-        scenario_layout.addWidget(QLabel("Description"), 1, 0, Qt.AlignTop)
+        scenario_layout.addWidget(QLabel("Description"), 1, 0, Qt.AlignmentFlag.AlignTop)
         scenario_layout.addWidget(self.description_edit, 1, 1, 1, 5)
         layout.addWidget(scenario_box)
 
@@ -7804,7 +7804,7 @@ class ScenarioTestingDialog(QDialog):
         events_layout.addLayout(event_row)
         layout.addWidget(events_box, 1)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -7995,7 +7995,7 @@ class ScenarioTestingDialog(QDialog):
             "Delete scenario",
             f"Delete {name} and all of its events?",
         )
-        if answer == QMessageBox.Yes:
+        if answer == QMessageBox.StandardButton.Yes:
             del self.scenarios[idx]
             self.config["active_scenario"] = "Normal operation"
             self._refresh_scenarios()
@@ -8019,7 +8019,7 @@ class ScenarioTestingDialog(QDialog):
         if not scenario:
             return
         dialog = ScenarioEventDialog(self, self.resource_options)
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             scenario.setdefault("events", []).append(dialog.result)
             self.load_scenario()
             self.table.selectRow(len(scenario["events"]) - 1)
@@ -8061,7 +8061,7 @@ class ScenarioTestingDialog(QDialog):
             "speed_factor": 1.0,
         }
         dialog = ScenarioEventDialog(self, self.resource_options, seed)
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             scenario.setdefault("events", []).append(dialog.result)
             self.load_scenario()
             self.table.selectRow(len(scenario["events"]) - 1)
@@ -8075,7 +8075,7 @@ class ScenarioTestingDialog(QDialog):
         dialog = ScenarioEventDialog(
             self, self.resource_options, scenario.setdefault("events", [])[index]
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             scenario["events"][index] = dialog.result
             self.load_scenario()
             self.table.selectRow(index)
@@ -8091,7 +8091,7 @@ class ScenarioTestingDialog(QDialog):
             "Delete scenario event",
             "Delete the selected event?",
         )
-        if answer == QMessageBox.Yes:
+        if answer == QMessageBox.StandardButton.Yes:
             del scenario.setdefault("events", [])[index]
             self.load_scenario()
 
@@ -8152,7 +8152,7 @@ class CorridorSettingsDialog(QDialog):
         layout.addWidget(tabs, 1)
         self._build_corridor_tab(tabs)
         self._build_door_tab(tabs)
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -8445,7 +8445,7 @@ class CorridorSettingsDialog(QDialog):
         options = [self.edge_label(edge) for edge in self.edges]
         selected = [self.edge_label(self.edges[row]) for row in self.selected_edge_rows()]
         dialog = MultiSelectPicker(self, "Select corridor assets", options, selected=selected)
-        if dialog.exec() == QDialog.Accepted and dialog.result is not None:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result is not None:
             wanted = set(dialog.result)
             self.edge_filter.clear()
             self._set_selected_rows(
@@ -8463,7 +8463,7 @@ class CorridorSettingsDialog(QDialog):
             selected=selected,
             group_resolver=lambda value: f"Floor {self._node_map().get(value, {}).get('floor', '')}",
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result is not None:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result is not None:
             wanted = set(dialog.result)
             self.node_filter.clear()
             self._set_selected_rows(
@@ -8482,7 +8482,7 @@ class CorridorSettingsDialog(QDialog):
             self.people_profiles,
             selected=self.selected_profile_ids,
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result is not None:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result is not None:
             self.selected_profile_ids = list(dialog.result)
             self.profile_change_requested = True
             self.profile_summary.setText(
@@ -8786,7 +8786,7 @@ class SimulationSettingsDialog(QDialog):
         )
         initial_layout.addStretch(1)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -8795,9 +8795,9 @@ class SimulationSettingsDialog(QDialog):
     @staticmethod
     def _datetime_from_text(value, fallback):
         text = str(value or fallback).strip()
-        parsed = QDateTime.fromString(text, Qt.ISODate)
+        parsed = QDateTime.fromString(text, Qt.DateFormat.ISODate)
         if not parsed.isValid():
-            parsed = QDateTime.fromString(str(fallback), Qt.ISODate)
+            parsed = QDateTime.fromString(str(fallback), Qt.DateFormat.ISODate)
         return parsed
 
     def _normalise_simulation(self, simulation):
@@ -8831,8 +8831,8 @@ class SimulationSettingsDialog(QDialog):
         result = dict(self.simulation)
         result.update(
             {
-                "start_datetime": start.toString(Qt.ISODate),
-                "end_datetime": end.toString(Qt.ISODate)
+                "start_datetime": start.toString(Qt.DateFormat.ISODate),
+                "end_datetime": end.toString(Qt.DateFormat.ISODate)
                 if self.use_end_datetime_check.isChecked()
                 else "",
                 "tick_rate": float(self.tick_rate_spin.value()),
@@ -8892,7 +8892,7 @@ class WasteStreamEditorDialog(QDialog):
         form.addRow("Container capacity", self.container_capacity_edit)
         form.addRow("Full threshold", self.full_threshold_edit)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -8942,10 +8942,10 @@ class WasteStreamListDialog(QDialog):
                 "Full threshold",
             ]
         )
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.table.setColumnWidth(0, 180)
         self.table.setColumnWidth(1, 180)
         self.table.setColumnWidth(2, 120)
@@ -8994,7 +8994,7 @@ class WasteStreamListDialog(QDialog):
 
     def add_item(self):
         dialog = WasteStreamEditorDialog(self, self.payload_names)
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             name = dialog.result["name"]
             if any(str(x.get("name", "")).strip() == name for x in self.items):
                 QMessageBox.critical(self, "Duplicate", "Waste stream already exists")
@@ -9007,7 +9007,7 @@ class WasteStreamListDialog(QDialog):
         if row < 0:
             return
         dialog = WasteStreamEditorDialog(self, self.payload_names, self.items[row])
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             new_name = dialog.result["name"]
             for idx, item in enumerate(self.items):
                 if idx != row and str(item.get("name", "")).strip() == new_name:
@@ -9166,7 +9166,7 @@ class MassCollectionEditorDialog(QDialog):
         help_label.setWordWrap(True)
         layout.addWidget(help_label)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -9176,7 +9176,7 @@ class MassCollectionEditorDialog(QDialog):
 
     def edit_scheduled_times(self):
         dialog = ScheduledTimesDialog(self, self.scheduled_times)
-        if dialog.exec() == QDialog.Accepted and dialog.result is not None:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result is not None:
             self.scheduled_times = list(dialog.result)
             self.refresh_scheduled_times_summary()
 
@@ -9202,7 +9202,7 @@ class MassCollectionEditorDialog(QDialog):
             selected=self.selected_payloads,
             group_resolver=lambda _item: "Payloads",
         )
-        if picker.exec() == QDialog.Accepted and picker.result is not None:
+        if picker.exec() == QDialog.DialogCode.Accepted and picker.result is not None:
             self.selected_payloads = sorted(picker.result)
             self.refresh_payload_summary()
 
@@ -9278,10 +9278,10 @@ class MassCollectionListDialog(QDialog):
                 "Interval min",
             ]
         )
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         layout.addWidget(self.table, 1)
 
         row = QHBoxLayout()
@@ -9335,7 +9335,7 @@ class MassCollectionListDialog(QDialog):
         dialog = MassCollectionEditorDialog(
             self, self.location_names, self.payload_names, default_id=self._next_id()
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             if any(
                 str(x.get("id", "")).strip() == dialog.result["id"] for x in self.items
             ):
@@ -9353,7 +9353,7 @@ class MassCollectionListDialog(QDialog):
         dialog = MassCollectionEditorDialog(
             self, self.location_names, self.payload_names, seed=self.items[row]
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             new_id = dialog.result["id"]
             for idx, item in enumerate(self.items):
                 if idx != row and str(item.get("id", "")).strip() == new_id:
@@ -9413,8 +9413,8 @@ class DepartmentWasteStreamSettingsDialog(QDialog):
                 "Shared bin group",
             ]
         )
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         layout.addWidget(self.table, 1)
 
         row = QHBoxLayout()
@@ -9433,7 +9433,7 @@ class DepartmentWasteStreamSettingsDialog(QDialog):
         row.addWidget(delete_btn)
         row.addStretch(1)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -9469,7 +9469,7 @@ class DepartmentWasteStreamSettingsDialog(QDialog):
             self,
             self.waste_stream_names,
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             name = dialog.result["name"]
             if any(x.get("name") == name for x in self.items):
                 QMessageBox.critical(
@@ -9491,7 +9491,7 @@ class DepartmentWasteStreamSettingsDialog(QDialog):
             self.waste_stream_names,
             seed=self.items[row],
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             new_name = dialog.result["name"]
 
             for idx, item in enumerate(self.items):
@@ -9607,7 +9607,7 @@ class DepartmentWasteStreamItemDialog(QDialog):
         form.addRow("Base daily volume m³", self.base_daily_edit)
         form.addRow("Scheduled times", schedule_row)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -9621,7 +9621,7 @@ class DepartmentWasteStreamItemDialog(QDialog):
 
     def edit_times(self):
         dialog = ScheduledTimesDialog(self, self.scheduled_times)
-        if dialog.exec() == QDialog.Accepted and dialog.result is not None:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result is not None:
             self.scheduled_times = list(dialog.result)
             self.refresh_schedule_summary()
 
@@ -9861,7 +9861,7 @@ class DepartmentEditorDialog(QDialog):
         form.addRow("X", self.x_edit)
         form.addRow("Y", self.y_edit)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -9956,7 +9956,6 @@ class DepartmentEditorDialog(QDialog):
             )
             return
 
-        suffix = self.category_suffix_edits[category_key].text().strip()
         location_name = self._next_category_location_name(category_key)
 
         self.hide()
@@ -10133,54 +10132,12 @@ class DepartmentEditorDialog(QDialog):
                 return candidate
             counter += 1
 
-    def _normalise_task_generation_locations(self):
-        result = {}
 
-        existing = self.seed.get("task_generation_locations", {})
-        if isinstance(existing, dict):
-            for category_key, item in existing.items():
-                if isinstance(item, dict):
-                    locations = item.get(
-                        "pickup_dropoff_locations", item.get("locations", [])
-                    )
-                else:
-                    locations = item
-
-                result[str(category_key)] = [
-                    str(x).strip() for x in locations or [] if str(x).strip()
-                ]
-
-        return result
-
-    def _refresh_category_location_summary(self, category_key):
-        summary = self.category_location_summaries.get(category_key)
-        if summary is None:
-            return
-
-        values = self.category_location_selections.get(category_key, [])
-        if not values:
-            summary.setText("None selected")
-        elif len(values) <= 4:
-            summary.setText(", ".join(values))
-        else:
-            summary.setText(f"{len(values)} selected")
 
     def _refresh_all_category_location_summaries(self):
         for category_key, *_ in self.task_generation_categories:
             self._refresh_category_location_summary(category_key)
 
-    def _pick_category_locations(self, category_key):
-        picker = MultiSelectPicker(
-            self,
-            "Select pickup / drop-off locations",
-            self.location_names,
-            selected=self.category_location_selections.get(category_key, []),
-            group_resolver=self.group_resolver,
-        )
-
-        if picker.exec() == QDialog.Accepted and picker.result is not None:
-            self.category_location_selections[category_key] = sorted(picker.result)
-            self._refresh_category_location_summary(category_key)
 
     def _normalise_department_waste_streams(self, value):
         result = []
@@ -10260,7 +10217,7 @@ class DepartmentEditorDialog(QDialog):
             self.selected_waste_streams,
         )
 
-        if dialog.exec() == QDialog.Accepted and dialog.result is not None:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result is not None:
             self.selected_waste_streams = list(dialog.result)
             self._refresh_waste_summary()
 
@@ -10324,7 +10281,7 @@ class DepartmentEditorDialog(QDialog):
             group_resolver=self.group_resolver,
         )
 
-        if picker.exec() == QDialog.Accepted and picker.result is not None:
+        if picker.exec() == QDialog.DialogCode.Accepted and picker.result is not None:
             self.category_location_selections[category_key] = sorted(picker.result)
             self._refresh_category_location_summary(category_key)
 
@@ -10360,10 +10317,6 @@ class DepartmentEditorDialog(QDialog):
                 raise ValueError("Select at least one active day")
 
             dept_id = self.id_edit.text().strip()
-            floor = int(self.floor_label.text())
-            x = float(self.x_edit.text())
-            y = float(self.y_edit.text())
-
             location_suffixes = {}
 
             for (
@@ -10514,9 +10467,9 @@ class BulkDepartmentWasteStreamControlDialog(QDialog):
                 "Shared bin group",
             ]
         )
-        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setRootIsDecorated(False)
-        self.table.header().setSectionResizeMode(QHeaderView.Interactive)
+        self.table.header().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         layout.addWidget(self.table, 1)
 
         tools = QHBoxLayout()
@@ -10526,8 +10479,8 @@ class BulkDepartmentWasteStreamControlDialog(QDialog):
         clear_all_btn = QPushButton("Remove all")
         unchanged_btn = QPushButton("Leave mixed unchanged")
 
-        check_all_btn.clicked.connect(lambda: self._set_all(Qt.Checked))
-        clear_all_btn.clicked.connect(lambda: self._set_all(Qt.Unchecked))
+        check_all_btn.clicked.connect(lambda: self._set_all(Qt.CheckState.Checked))
+        clear_all_btn.clicked.connect(lambda: self._set_all(Qt.CheckState.Unchecked))
         unchanged_btn.clicked.connect(self._restore_partial_states)
 
         tools.addWidget(check_all_btn)
@@ -10535,7 +10488,7 @@ class BulkDepartmentWasteStreamControlDialog(QDialog):
         tools.addWidget(unchanged_btn)
         tools.addStretch(1)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -10673,20 +10626,20 @@ class BulkDepartmentWasteStreamControlDialog(QDialog):
                     "",
                 ]
             )
-            item.setData(0, Qt.UserRole, stream_name)
+            item.setData(0, Qt.ItemDataRole.UserRole, stream_name)
             item.setFlags(
                 item.flags()
-                | Qt.ItemIsUserCheckable
-                | Qt.ItemIsEnabled
-                | Qt.ItemIsSelectable
+                | Qt.ItemFlag.ItemIsUserCheckable
+                | Qt.ItemFlag.ItemIsEnabled
+                | Qt.ItemFlag.ItemIsSelectable
             )
 
             if assigned_count <= 0:
-                state = Qt.Unchecked
+                state = Qt.CheckState.Unchecked
             elif assigned_count >= dept_count:
-                state = Qt.Checked
+                state = Qt.CheckState.Checked
             else:
-                state = Qt.PartiallyChecked
+                state = Qt.CheckState.PartiallyChecked
                 self._initial_partial_streams.add(stream_name)
 
             item.setCheckState(0, state)
@@ -10803,9 +10756,9 @@ class BulkDepartmentWasteStreamControlDialog(QDialog):
     def _restore_partial_states(self):
         for idx in range(self.table.topLevelItemCount()):
             item = self.table.topLevelItem(idx)
-            stream_name = str(item.data(0, Qt.UserRole) or "").strip()
+            stream_name = str(item.data(0, Qt.ItemDataRole.UserRole) or "").strip()
             if stream_name in self._initial_partial_streams:
-                item.setCheckState(0, Qt.PartiallyChecked)
+                item.setCheckState(0, Qt.CheckState.PartiallyChecked)
 
     def _refresh_schedule_summary(self, stream_name):
         widgets = self._row_widgets.get(stream_name, {})
@@ -10823,7 +10776,7 @@ class BulkDepartmentWasteStreamControlDialog(QDialog):
     def _edit_times_for_stream(self, stream_name):
         widgets = self._row_widgets.get(stream_name, {})
         dialog = ScheduledTimesDialog(self, widgets.get("scheduled_times", []))
-        if dialog.exec() == QDialog.Accepted and dialog.result is not None:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result is not None:
             widgets["scheduled_times"] = list(dialog.result)
             self._refresh_schedule_summary(stream_name)
 
@@ -10901,13 +10854,13 @@ class BulkDepartmentWasteStreamControlDialog(QDialog):
         try:
             for idx in range(self.table.topLevelItemCount()):
                 item = self.table.topLevelItem(idx)
-                stream_name = str(item.data(0, Qt.UserRole) or "").strip()
+                stream_name = str(item.data(0, Qt.ItemDataRole.UserRole) or "").strip()
                 if not stream_name:
                     continue
 
                 state = item.checkState(0)
                 is_orphan = stream_name not in self.global_waste_stream_names
-                if state == Qt.Checked:
+                if state == Qt.CheckState.Checked:
                     # Orphaned/deleted streams cannot be newly assigned or edited
                     # because there is no global stream definition to back them.
                     # Keeping them checked means preserve existing assignments.
@@ -10918,7 +10871,7 @@ class BulkDepartmentWasteStreamControlDialog(QDialog):
                         update_stream_settings[stream_name] = self._settings_for_stream(
                             stream_name
                         )
-                elif state == Qt.Unchecked:
+                elif state == Qt.CheckState.Unchecked:
                     remove_streams.append(stream_name)
                 else:
                     unchanged_streams.append(stream_name)
@@ -11027,14 +10980,14 @@ class TaskCategoryCommonLocationWizard(QDialog):
         )
         self.department_table.setRootIsDecorated(False)
         self.department_table.setAlternatingRowColors(True)
-        self.department_table.header().setSectionResizeMode(QHeaderView.Interactive)
+        self.department_table.header().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         layout.addWidget(self.department_table, 1)
 
         self.summary_label = QLabel()
         self.summary_label.setWordWrap(True)
         layout.addWidget(self.summary_label)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -11089,7 +11042,7 @@ class TaskCategoryCommonLocationWizard(QDialog):
             selected=self.selected_locations,
             group_resolver=self.group_resolver,
         )
-        if picker.exec() == QDialog.Accepted and picker.result is not None:
+        if picker.exec() == QDialog.DialogCode.Accepted and picker.result is not None:
             self.selected_locations = sorted(
                 {str(x).strip() for x in picker.result if str(x).strip()}
             )
@@ -11143,16 +11096,16 @@ class TaskCategoryCommonLocationWizard(QDialog):
                     ", ".join(current_locations),
                 ]
             )
-            item.setData(0, Qt.UserRole, index)
-            item.setData(1, Qt.UserRole, dept_id)
-            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setData(0, Qt.ItemDataRole.UserRole, index)
+            item.setData(1, Qt.ItemDataRole.UserRole, dept_id)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
 
             checked = False
             if previous_checked:
                 checked = dept_id in previous_checked
             elif self.preselected_indexes:
                 checked = index in self.preselected_indexes
-            item.setCheckState(0, Qt.Checked if checked else Qt.Unchecked)
+            item.setCheckState(0, Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
             self.department_table.addTopLevelItem(item)
 
         for col in range(self.department_table.columnCount()):
@@ -11163,9 +11116,9 @@ class TaskCategoryCommonLocationWizard(QDialog):
         ids = []
         for row in range(self.department_table.topLevelItemCount()):
             item = self.department_table.topLevelItem(row)
-            if item.checkState(0) != Qt.Checked:
+            if item.checkState(0) != Qt.CheckState.Checked:
                 continue
-            dept_id = str(item.data(1, Qt.UserRole) or "").strip()
+            dept_id = str(item.data(1, Qt.ItemDataRole.UserRole) or "").strip()
             if dept_id:
                 ids.append(dept_id)
         return ids
@@ -11173,12 +11126,12 @@ class TaskCategoryCommonLocationWizard(QDialog):
     def _set_department_checked_by_predicate(self, predicate):
         for row in range(self.department_table.topLevelItemCount()):
             item = self.department_table.topLevelItem(row)
-            index = item.data(0, Qt.UserRole)
+            index = item.data(0, Qt.ItemDataRole.UserRole)
             try:
                 dept = self.departments[int(index)]
             except Exception:
                 dept = {}
-            item.setCheckState(0, Qt.Checked if predicate(dept) else Qt.Unchecked)
+            item.setCheckState(0, Qt.CheckState.Checked if predicate(dept) else Qt.CheckState.Unchecked)
         self.refresh_summary()
 
     def select_all_departments(self):
@@ -11373,14 +11326,14 @@ class TaskCategorySharedBinGroupWizard(QDialog):
         )
         self.preview.setRootIsDecorated(False)
         self.preview.setAlternatingRowColors(True)
-        self.preview.header().setSectionResizeMode(QHeaderView.Interactive)
+        self.preview.header().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         layout.addWidget(self.preview, 1)
 
         self.summary_label = QLabel()
         self.summary_label.setWordWrap(True)
         layout.addWidget(self.summary_label)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -11498,7 +11451,7 @@ class TaskCategorySharedBinGroupWizard(QDialog):
             selected=self.selected_waste_streams,
             group_resolver=lambda _item: "Waste streams",
         )
-        if picker.exec() == QDialog.Accepted and picker.result is not None:
+        if picker.exec() == QDialog.DialogCode.Accepted and picker.result is not None:
             self.selected_waste_streams = sorted(
                 {str(x).strip() for x in picker.result if str(x).strip()}
             )
@@ -11607,8 +11560,8 @@ class TaskCategorySharedBinGroupWizard(QDialog):
         previous_checked = set()
         for row in range(self.preview.topLevelItemCount()):
             item = self.preview.topLevelItem(row)
-            if item.checkState(0) == Qt.Checked:
-                previous_checked.add(str(item.data(1, Qt.UserRole) or ""))
+            if item.checkState(0) == Qt.CheckState.Checked:
+                previous_checked.add(str(item.data(1, Qt.ItemDataRole.UserRole) or ""))
 
         self.preview.clear()
         groups = self._build_location_groups()
@@ -11638,11 +11591,11 @@ class TaskCategorySharedBinGroupWizard(QDialog):
                     str(group["skipped_existing_count"]),
                 ]
             )
-            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-            item.setData(1, Qt.UserRole, group["location"])
-            item.setData(2, Qt.UserRole, group)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setData(1, Qt.ItemDataRole.UserRole, group["location"])
+            item.setData(2, Qt.ItemDataRole.UserRole, group)
             checked = group["location"] in previous_checked if had_previous else True
-            item.setCheckState(0, Qt.Checked if checked else Qt.Unchecked)
+            item.setCheckState(0, Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
             self.preview.addTopLevelItem(item)
 
         for col in range(self.preview.columnCount()):
@@ -11653,9 +11606,9 @@ class TaskCategorySharedBinGroupWizard(QDialog):
         groups = []
         for row in range(self.preview.topLevelItemCount()):
             item = self.preview.topLevelItem(row)
-            if item.checkState(0) != Qt.Checked:
+            if item.checkState(0) != Qt.CheckState.Checked:
                 continue
-            group = item.data(2, Qt.UserRole)
+            group = item.data(2, Qt.ItemDataRole.UserRole)
             if isinstance(group, dict):
                 groups.append(group)
         return groups
@@ -11663,8 +11616,8 @@ class TaskCategorySharedBinGroupWizard(QDialog):
     def _set_group_checks(self, predicate):
         for row in range(self.preview.topLevelItemCount()):
             item = self.preview.topLevelItem(row)
-            group = item.data(2, Qt.UserRole)
-            item.setCheckState(0, Qt.Checked if predicate(group) else Qt.Unchecked)
+            group = item.data(2, Qt.ItemDataRole.UserRole)
+            item.setCheckState(0, Qt.CheckState.Checked if predicate(group) else Qt.CheckState.Unchecked)
         self.refresh_summary()
 
     def select_current_floor_groups(self):
@@ -11758,10 +11711,10 @@ class DepartmentListDialog(QDialog):
                 "Waste streams",
             ]
         )
-        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.itemDoubleClicked.connect(lambda _item, _col: self.edit_item())
-        self.table.header().setSectionResizeMode(QHeaderView.Interactive)
+        self.table.header().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         layout.addWidget(self.table)
 
         row = QHBoxLayout()
@@ -11881,7 +11834,7 @@ class DepartmentListDialog(QDialog):
                     ]
                 )
 
-                child.setData(0, Qt.UserRole, idx)
+                child.setData(0, Qt.ItemDataRole.UserRole, idx)
                 floor_item.addChild(child)
                 self._tree_item_to_index[id(child)] = idx
 
@@ -11892,7 +11845,7 @@ class DepartmentListDialog(QDialog):
         indexes = []
 
         for item in self.table.selectedItems():
-            idx = item.data(0, Qt.UserRole)
+            idx = item.data(0, Qt.ItemDataRole.UserRole)
             if idx is None:
                 continue
             try:
@@ -11923,7 +11876,7 @@ class DepartmentListDialog(QDialog):
             group_resolver=self.group_resolver,
         )
 
-        if dialog.exec() != QDialog.Accepted or not dialog.result:
+        if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.result:
             return
 
         category_key = str(dialog.result.get("category_key", "")).strip()
@@ -12020,7 +11973,7 @@ class DepartmentListDialog(QDialog):
             current_floor=self.current_floor,
         )
 
-        if dialog.exec() != QDialog.Accepted or not dialog.result:
+        if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.result:
             return
 
         selected_streams = {
@@ -12332,7 +12285,7 @@ class DepartmentListDialog(QDialog):
             departments=selected_departments,
         )
 
-        if dialog.exec() != QDialog.Accepted or not dialog.result:
+        if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.result:
             return
 
         add_streams = {
@@ -12707,7 +12660,7 @@ class DepartmentListDialog(QDialog):
             group_resolver=self.group_resolver,
             task_generation_categories=self.task_generation_categories,
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             new_id = str(dialog.result.get("id", "")).strip()
             new_name = str(dialog.result.get("name", "")).strip()
 
@@ -12746,7 +12699,7 @@ class DepartmentListDialog(QDialog):
             task_generation_categories=self.task_generation_categories,
         )
 
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             new_id = str(dialog.result.get("id", "")).strip()
             new_name = str(dialog.result.get("name", "")).strip()
 
@@ -12778,7 +12731,7 @@ class DepartmentListDialog(QDialog):
                 "Delete departments",
                 f"Delete {len(indexes)} selected department(s)?",
             )
-            != QMessageBox.Yes
+            != QMessageBox.StandardButton.Yes
         ):
             return
 
@@ -12802,7 +12755,7 @@ class ZoomableInventoryView(QGraphicsView):
         self._inventory_mouse_press = None
         self._inventory_mouse_move = None
         self._inventory_mouse_release = None
-        self.setDragMode(QGraphicsView.NoDrag)
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
 
     def set_inventory_mouse_handlers(self, press, move, release):
         self._inventory_mouse_press = press
@@ -12815,10 +12768,10 @@ class ZoomableInventoryView(QGraphicsView):
         event.accept()
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.MiddleButton:
+        if event.button() == Qt.MouseButton.MiddleButton:
             self._middle_panning = True
             self._last_middle_pos = event.position().toPoint()
-            self.viewport().setCursor(Qt.ClosedHandCursor)
+            self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
             return
 
@@ -12851,7 +12804,7 @@ class ZoomableInventoryView(QGraphicsView):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if event.button() == Qt.MiddleButton:
+        if event.button() == Qt.MouseButton.MiddleButton:
             self._middle_panning = False
             self._last_middle_pos = None
             self.viewport().unsetCursor()
@@ -12926,7 +12879,7 @@ class ArrayInventorySpacesDialog(QDialog):
         hint.setWordWrap(True)
         layout.addWidget(hint)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -13038,10 +12991,10 @@ class InventorySpacesDialog(QDialog):
         layout.addLayout(left, 0)
 
         self.space_list = QListWidget()
-        self.space_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.space_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.space_list.currentRowChanged.connect(self.select_space)
         self.space_list.itemSelectionChanged.connect(self._sync_space_list_selection)
-        self.space_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.space_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.space_list.customContextMenuRequested.connect(self._show_space_list_menu)
 
         left.addWidget(QLabel("Inventory spaces"))
@@ -13162,8 +13115,8 @@ class InventorySpacesDialog(QDialog):
 
         self.scene = QGraphicsScene(self)
         self.view = ZoomableInventoryView(self.scene)
-        self.view.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
-        self.view.setResizeAnchor(QGraphicsView.AnchorUnderMouse)
+        self.view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.view.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.view.setRenderHint(self.view.renderHints())
         self.view.setMouseTracking(True)
         self.view.set_inventory_mouse_handlers(
@@ -13690,7 +13643,7 @@ class InventorySpacesDialog(QDialog):
             default_kind=default_kind,
             default_name=default_name,
         )
-        if dialog.exec() != QDialog.Accepted or not dialog.result:
+        if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.result:
             return
 
         cfg = dialog.result
@@ -14422,10 +14375,10 @@ class InventorySpacesDialog(QDialog):
 
         hit_space = self._nearest_space_index_at(x, y)
         modifiers = event.modifiers()
-        additive = bool(modifiers & (Qt.ControlModifier | Qt.ShiftModifier))
+        additive = bool(modifiers & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier))
 
         rotate_hit = self._nearest_rotation_handle_index_at(x, y)
-        if event.button() == Qt.LeftButton and rotate_hit is not None:
+        if event.button() == Qt.MouseButton.LeftButton and rotate_hit is not None:
             slot = self._space_payload_slot(rotate_hit)
             if slot:
                 self.rotate_space_index = rotate_hit
@@ -14439,7 +14392,7 @@ class InventorySpacesDialog(QDialog):
                 )
                 return
 
-        if event.button() == Qt.RightButton:
+        if event.button() == Qt.MouseButton.RightButton:
             if hit_space is not None:
                 previous_index = self.selected_space_index
                 if previous_index is not None and previous_index != hit_space:
@@ -14450,7 +14403,7 @@ class InventorySpacesDialog(QDialog):
                 )
             return
 
-        if event.button() != Qt.LeftButton:
+        if event.button() != Qt.MouseButton.LeftButton:
             return
 
         if hit_space is not None:
@@ -14490,7 +14443,7 @@ class InventorySpacesDialog(QDialog):
         # Qt can still deliver a move event after the mouse button has been
         # released, especially if the cursor leaves the rotate handle/viewport.
         # Treat that as a cancelled drag so rotation cannot continue running.
-        if not (event.buttons() & Qt.LeftButton):
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
             if self.rotate_space_index is not None:
                 self.rotate_space_index = None
                 self.rotate_start_center = None
@@ -14515,7 +14468,7 @@ class InventorySpacesDialog(QDialog):
                 angle = math.degrees(
                     math.atan2(float(y) - float(cy), float(x) - float(cx))
                 )
-                if event.modifiers() & Qt.ShiftModifier:
+                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
                     angle = round(angle / 90.0) * 90.0
                 slot["rotation_deg"] = self._normalise_degrees(angle)
                 self.selected_space_index = self.rotate_space_index
@@ -14748,10 +14701,10 @@ class InventorySpacesDialog(QDialog):
 
             item = QGraphicsPathItem(path)
             item.setPen(QPen(QColor(colour), 0))
-            item.setBrush(Qt.NoBrush)
+            item.setBrush(Qt.BrushStyle.NoBrush)
             item.setZValue(-100)
             item.setOpacity(0.45)
-            item.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
+            item.setCacheMode(QGraphicsItem.CacheMode.DeviceCoordinateCache)
             self.scene.addItem(item)
 
     def refresh_scene(self):
@@ -14792,7 +14745,7 @@ class InventorySpacesDialog(QDialog):
 
             label = QGraphicsSimpleTextItem(space.get("name", "Inventory"))
             label.setBrush(QBrush(QColor("#bcd7ff")))
-            label.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
+            label.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
             label.setPos(pts[0])
             self.scene.addItem(label)
 
@@ -14822,7 +14775,7 @@ class InventorySpacesDialog(QDialog):
             cx, cy = self._slot_center_absolute(slot)
             label = QGraphicsSimpleTextItem(item_name)
             label.setBrush(QBrush(QColor("#e3f2ff")))
-            label.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
+            label.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
             label.setPos(self.world_to_scene(cx, cy))
             label.setZValue(16)
             self.scene.addItem(label)
@@ -14868,7 +14821,7 @@ class InventorySpacesDialog(QDialog):
             self.scene.setSceneRect(padded)
 
             if not self._initial_fit_done:
-                self.view.fitInView(padded, Qt.KeepAspectRatio)
+                self.view.fitInView(padded, Qt.AspectRatioMode.KeepAspectRatio)
                 self._initial_fit_done = True
 
         self._refresh_size_fields()

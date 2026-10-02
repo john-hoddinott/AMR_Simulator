@@ -1014,7 +1014,7 @@ def interval_total(intervals: Iterable[Tuple[float, float]]) -> float:
 
 def choose_task_endpoint(
     g: pd.DataFrame,
-    ctx: Context,
+    _ctx: Context,
     from_col: Optional[str],
     to_col: Optional[str],
     which: str,
@@ -3089,11 +3089,6 @@ def build_payload_handling_timetable(
     department_names = metadata.get("department_names", {}) or {}
     location_names = metadata.get("location_display_names", {}) or {}
     location_points = metadata.get("location_points", {}) or {}
-    category_schedule_times = {
-        str(k).strip().lower(): list(v or [])
-        for k, v in (metadata.get("category_schedule_times", {}) or {}).items()
-    }
-
     for col in (
         "details",
         "task_id",
@@ -3741,8 +3736,6 @@ def analyse(
     )
 
     task_rows: List[dict] = []
-    active_intervals: List[Tuple[float, float]] = []
-
     raw_task_ids = [str(x).strip() for x in df[task_col].dropna().tolist() if str(x).strip()]
     single_task_ids = {task_id for task_id in raw_task_ids if "," not in task_id}
 

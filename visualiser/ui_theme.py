@@ -21,9 +21,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
     QFrame,
-    QGridLayout,
     QGroupBox,
-    QHBoxLayout,
     QHeaderView,
     QLabel,
     QLayout,
@@ -187,7 +185,7 @@ PREFIX_INTRODUCTIONS = (
 
 class _DialogThemeFilter(QObject):
     def eventFilter(self, watched, event):
-        if event.type() == QEvent.Show and isinstance(watched, (QDialog, QMainWindow)):
+        if event.type() == QEvent.Type.Show and isinstance(watched, (QDialog, QMainWindow)):
             QTimer.singleShot(0, lambda obj=watched: polish_dialog(obj))
         return False
 
@@ -237,7 +235,7 @@ def _direct_intro_exists(dialog: QWidget) -> bool:
         first = root.itemAt(0).widget()
         if isinstance(first, QLabel) and first.wordWrap() and len(first.text().strip()) >= 70:
             first.setObjectName("dialogIntro")
-            first.setFrameShape(QFrame.StyledPanel)
+            first.setFrameShape(QFrame.Shape.StyledPanel)
             first.setContentsMargins(10, 8, 10, 8)
             return True
     return False
@@ -256,7 +254,7 @@ def _insert_intro(dialog: QWidget) -> None:
     intro = QLabel(text, host)
     intro.setObjectName("dialogIntro")
     intro.setWordWrap(True)
-    intro.setFrameShape(QFrame.StyledPanel)
+    intro.setFrameShape(QFrame.Shape.StyledPanel)
     intro.setContentsMargins(10, 8, 10, 8)
     root.insertWidget(0, intro)
 
@@ -281,13 +279,13 @@ def _polish_forms(root: QWidget) -> None:
         if margins.left() < 8 and layout is root.layout():
             layout.setContentsMargins(12, 12, 12, 12)
         if isinstance(layout, QFormLayout):
-            layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-            layout.setRowWrapPolicy(QFormLayout.WrapLongRows)
-            layout.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-            layout.setFormAlignment(Qt.AlignTop)
+            layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+            layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+            layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            layout.setFormAlignment(Qt.AlignmentFlag.AlignTop)
             for row in range(layout.rowCount()):
-                label_item = layout.itemAt(row, QFormLayout.LabelRole)
-                field_item = layout.itemAt(row, QFormLayout.FieldRole)
+                label_item = layout.itemAt(row, QFormLayout.ItemRole.LabelRole)
+                field_item = layout.itemAt(row, QFormLayout.ItemRole.FieldRole)
                 label_widget = label_item.widget() if label_item else None
                 field_widget = field_item.widget() if field_item else None
                 if not isinstance(label_widget, QLabel) or field_widget is None:
@@ -310,14 +308,14 @@ def _polish_inputs(root: QWidget) -> None:
         edit.setMinimumWidth(min(max(edit.minimumWidth(), 120), 280))
     for combo in root.findChildren(QComboBox):
         combo.setMaxVisibleItems(20)
-        combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         combo.setMinimumContentsLength(min(max(combo.minimumContentsLength(), 12), 28))
     for spin in root.findChildren(QSpinBox) + root.findChildren(QDoubleSpinBox):
         spin.setKeyboardTracking(False)
-        spin.setAlignment(Qt.AlignRight)
+        spin.setAlignment(Qt.AlignmentFlag.AlignRight)
         spin.setAccelerated(True)
     for edit in root.findChildren(QDateTimeEdit):
-        edit.setAlignment(Qt.AlignRight)
+        edit.setAlignment(Qt.AlignmentFlag.AlignRight)
         if not isinstance(edit, QTimeEdit):
             edit.setCalendarPopup(True)
     for tabs in root.findChildren(QTabWidget):
@@ -336,14 +334,14 @@ def _polish_item_views(root: QWidget) -> None:
             continue
         seen.add(id(view))
         view.setAlternatingRowColors(True)
-        view.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
-        view.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
+        view.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        view.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
     for table in root.findChildren(QTableWidget):
         table.verticalHeader().setDefaultSectionSize(max(26, table.verticalHeader().defaultSectionSize()))
         table.horizontalHeader().setMinimumSectionSize(60)
         table.horizontalHeader().setHighlightSections(False)
-        if table.columnCount() > 0 and table.horizontalHeader().sectionResizeMode(0) == QHeaderView.Fixed:
-            table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        if table.columnCount() > 0 and table.horizontalHeader().sectionResizeMode(0) == QHeaderView.ResizeMode.Fixed:
+            table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
     for tree in root.findChildren(QTreeWidget):
         tree.setUniformRowHeights(True)
         tree.header().setHighlightSections(False)
@@ -355,14 +353,14 @@ def _polish_buttons(root: QWidget) -> None:
     danger_words = ("delete", "remove", "clear all", "reset all")
     for button in root.findChildren(QPushButton):
         text = button.text().replace("&", "").strip().lower()
-        button.setCursor(Qt.PointingHandCursor)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
         if any(word in text for word in danger_words):
             button.setProperty("danger", True)
         if text in {"save", "ok", "apply", "create", "finish", "run simulation"}:
             button.setProperty("primary", True)
     title = str(root.windowTitle() or "").strip()
     for box in root.findChildren(QDialogButtonBox):
-        ok_button = box.button(QDialogButtonBox.Ok)
+        ok_button = box.button(QDialogButtonBox.StandardButton.Ok)
         if ok_button is not None:
             if title.startswith("Select "):
                 ok_button.setText("Apply selection")
@@ -376,10 +374,10 @@ def _polish_buttons(root: QWidget) -> None:
             elif title not in {""}:
                 ok_button.setText("Save")
         for standard in (
-            QDialogButtonBox.Save,
-            QDialogButtonBox.Ok,
-            QDialogButtonBox.Apply,
-            QDialogButtonBox.Open,
+            QDialogButtonBox.StandardButton.Save,
+            QDialogButtonBox.StandardButton.Ok,
+            QDialogButtonBox.StandardButton.Apply,
+            QDialogButtonBox.StandardButton.Open,
         ):
             button = box.button(standard)
             if button is not None:
@@ -441,7 +439,7 @@ def _make_small_screen_scrollable(dialog: QWidget) -> None:
     scroll = QScrollArea(host)
     scroll.setObjectName("dialogContentScroll")
     scroll.setWidgetResizable(True)
-    scroll.setFrameShape(QFrame.NoFrame)
+    scroll.setFrameShape(QFrame.Shape.NoFrame)
     scroll.setWidget(content)
     root.insertWidget(0, scroll, 1)
     dialog.setProperty("amrScrollWrapped", True)
@@ -472,9 +470,9 @@ def polish_dialog(dialog: QWidget) -> None:
         return
     if not dialog.property("amrDialogPolished"):
         dialog.setProperty("amrDialogPolished", True)
-        dialog.setAttribute(Qt.WA_StyledBackground, True)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         if isinstance(dialog, QDialog):
-            dialog.setWindowFlag(Qt.WindowContextHelpButtonHint, False)
+            dialog.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
             dialog.setSizeGripEnabled(True)
         _insert_intro(dialog)
         _polish_forms(dialog)

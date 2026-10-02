@@ -15,8 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-from PySide6.QtCore import Qt, Signal, QObject
-from PySide6.QtGui import QColor, QPainter, QWindow
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QWindow
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 try:  # PySide6 exposes these only when Qt was built with Vulkan enabled.
@@ -147,7 +147,7 @@ class VulkanViewportWidget(QWidget):
         self.vulkan_window.setVulkanInstance(instance)
         self.vulkan_window.renderer_created.connect(self._on_renderer_created)
         self.window_container = QWidget.createWindowContainer(self.vulkan_window, self)
-        self.window_container.setFocusPolicy(Qt.StrongFocus)
+        self.window_container.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         layout.addWidget(self.window_container, 1)
         self.available = True
         self.status = "Vulkan viewport active"
@@ -155,7 +155,7 @@ class VulkanViewportWidget(QWidget):
 
     def _show_fallback(self, layout: QVBoxLayout):
         self.fallback_label = QLabel(self.status)
-        self.fallback_label.setAlignment(Qt.AlignCenter)
+        self.fallback_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.fallback_label.setStyleSheet("background:#111;color:#ddd;padding:24px;")
         layout.addWidget(self.fallback_label, 1)
         self.backend_changed.emit("fallback")

@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 
 @dataclass(order=True)
@@ -154,6 +154,16 @@ class StaffDeliveryResource:
         )
 
 
+class MobileDeliveryResource(Protocol):
+    """Physical attributes shared by AMRs and staff using routed movement."""
+
+    id: str
+    speed_m_per_sec: float
+    length_m: float
+    width_m: float
+    height_m: float
+
+
 @dataclass
 class Lift:
     id: str
@@ -202,7 +212,7 @@ class Lift:
     def can_fit(
         self,
         payload: PayloadType,
-        amr: Optional["AMR"] = None,
+        carrier: Optional[MobileDeliveryResource] = None,
         orientation: str = "lengthways",
     ) -> bool:
         orientation = str(orientation or "lengthways").strip().lower()
@@ -210,9 +220,9 @@ class Lift:
         payload_width = float(payload.width_m)
         if orientation == "sideways":
             payload_length, payload_width = payload_width, payload_length
-        total_length = max(payload_length, amr.length_m if amr else 0.0)
-        total_width = max(payload_width, amr.width_m if amr else 0.0)
-        total_height = max(payload.height_m, amr.height_m if amr else 0.0)
+        total_length = max(payload_length, carrier.length_m if carrier else 0.0)
+        total_width = max(payload_width, carrier.width_m if carrier else 0.0)
+        total_height = max(payload.height_m, carrier.height_m if carrier else 0.0)
         return (
             total_length <= self.capacity_length_m
             and total_width <= self.capacity_width_m

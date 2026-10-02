@@ -13,7 +13,6 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from PySide6.QtCore import (
     QObject,
-    QPoint,
     QPointF,
     Qt,
     Signal,
@@ -23,14 +22,13 @@ from PySide6.QtCore import (
     Slot,
     QRectF,
 )
-from PySide6.QtGui import QAction, QColor, QBrush, QPainter, QPen, QFont, QPolygonF
+from PySide6.QtGui import QColor, QBrush, QPainter, QPen, QFont, QPolygonF
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
-    QFormLayout,
     QFrame,
     QGridLayout,
     QGraphicsItem,
@@ -61,14 +59,11 @@ from dialogs import (
     LiftEditorDialog,
     LiftListDialog,
     PointEditorDialog,
-    TableListEditor,
     DepartmentEditorDialog,
-    WasteStreamEditorDialog,
     WasteStreamListDialog,
     MassCollectionListDialog,
     DepartmentListDialog,
     DeliveryResourcesDialog,
-    AMREditorDialog,
     InventorySpacesDialog,
     TaskGenerationSettingsDialog,
     PayloadListDialog,
@@ -155,9 +150,9 @@ class DXFLoadingDialog(QDialog):
         super().__init__(parent)
         self._completed = False
         self.setWindowTitle("Loading DXFs")
-        self.setWindowModality(Qt.ApplicationModal)
-        self.setWindowFlag(Qt.WindowCloseButtonHint, False)
-        self.setWindowFlag(Qt.WindowContextHelpButtonHint, False)
+        self.setWindowModality(Qt.WindowModality.ApplicationModal)
+        self.setWindowFlag(Qt.WindowType.WindowCloseButtonHint, False)
+        self.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
         self.setMinimumWidth(420)
 
         layout = QVBoxLayout(self)
@@ -213,22 +208,22 @@ class EditorGraphicsView(QGraphicsView):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setRenderHint(QPainter.Antialiasing, False)
+        self.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         self.setBackgroundBrush(QBrush(QColor("#111111")))
         self._overlay_provider = None
-        self.setDragMode(QGraphicsView.NoDrag)
-        self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
-        self.setResizeAnchor(QGraphicsView.AnchorUnderMouse)
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self._middle_panning = False
         self._last_middle_pos = None
 
     def mousePressEvent(self, event):
         scene_pos = self.mapToScene(event.position().toPoint())
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             self.leftClicked.emit(event, scene_pos.x(), scene_pos.y())
-        elif event.button() == Qt.RightButton:
+        elif event.button() == Qt.MouseButton.RightButton:
             self.rightClicked.emit(event, scene_pos.x(), scene_pos.y())
-        elif event.button() == Qt.MiddleButton:
+        elif event.button() == Qt.MouseButton.MiddleButton:
             self._middle_panning = True
             self._last_middle_pos = event.position().toPoint()
             self.middleClicked.emit(event)
@@ -236,14 +231,14 @@ class EditorGraphicsView(QGraphicsView):
 
     def mouseDoubleClickEvent(self, event):
         scene_pos = self.mapToScene(event.position().toPoint())
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             self.leftDoubleClicked.emit(event, scene_pos.x(), scene_pos.y())
         super().mouseDoubleClickEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             self.leftReleased.emit(event)
-        elif event.button() == Qt.MiddleButton:
+        elif event.button() == Qt.MouseButton.MiddleButton:
             self._middle_panning = False
             self._last_middle_pos = None
             self.middleReleased.emit(event)
@@ -253,7 +248,7 @@ class EditorGraphicsView(QGraphicsView):
         scene_pos = self.mapToScene(event.position().toPoint())
         if self._middle_panning and self._last_middle_pos is not None:
             self.middleDragged.emit(event)
-        if event.buttons() & Qt.LeftButton:
+        if event.buttons() & Qt.MouseButton.LeftButton:
             self.mouseDragged.emit(event, scene_pos.x(), scene_pos.y())
         super().mouseMoveEvent(event)
 
@@ -378,7 +373,7 @@ class AMRGraphEditor(QMainWindow):
         ]
         for label, value, tooltip in edit_modes:
             self.mode_combo.addItem(label, value)
-            self.mode_combo.setItemData(self.mode_combo.count() - 1, tooltip, Qt.ToolTipRole)
+            self.mode_combo.setItemData(self.mode_combo.count() - 1, tooltip, Qt.ItemDataRole.ToolTipRole)
         self.mode_combo.setToolTip("Choose what a mouse click does in the topology editor.")
         self.floor_spin = QSpinBox()
         self.floor_spin.setRange(0, 99)
@@ -405,7 +400,7 @@ class AMRGraphEditor(QMainWindow):
         self.ribbon_tabs = QTabWidget()
         self.ribbon_tabs.setDocumentMode(True)
         self.ribbon_tabs.tabBar().setUsesScrollButtons(True)
-        self.ribbon_tabs.setElideMode(Qt.ElideRight)
+        self.ribbon_tabs.setElideMode(Qt.TextElideMode.ElideRight)
         self.ribbon_tabs.setMinimumHeight(160)
         self.ribbon_tabs.setMaximumHeight(240)
         layout.addWidget(self.ribbon_tabs)
@@ -415,11 +410,11 @@ class AMRGraphEditor(QMainWindow):
         def create_page(title):
             scroll = QScrollArea()
             scroll.setWidgetResizable(False)
-            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-            scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-            scroll.setFrameShape(QFrame.NoFrame)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
             content = QWidget()
-            content.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+            content.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
             page_layout = QHBoxLayout(content)
             page_layout.setContentsMargins(6, 5, 6, 5)
             page_layout.setSpacing(6)
@@ -789,7 +784,7 @@ class AMRGraphEditor(QMainWindow):
             seed=seed,
             initially_selected_corridors=selected,
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             movements = list(self.store.people_movements())
             movements.append(dialog.result)
             self.store.set_people_movements(movements)
@@ -1005,7 +1000,6 @@ class AMRGraphEditor(QMainWindow):
                 completed += 1
         failed_count = len(self._loading_batch_failed)
         pending = max(0, total - completed)
-        message = f"Loading {total} DXF file(s)..."
         if pending:
             message = f"Loading {pending} remaining DXF file(s)..."
         elif failed_count:
@@ -1274,7 +1268,7 @@ class AMRGraphEditor(QMainWindow):
             and rect.height() > 0
         ):
             self.canvas.resetTransform()
-            self.canvas.fitInView(rect, Qt.KeepAspectRatio)
+            self.canvas.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
             self.scene.setSceneRect(rect.adjusted(-40, -40, 40, 40))
             self.canvas.viewport().update()
         self.refresh_canvas()
@@ -1322,7 +1316,7 @@ class AMRGraphEditor(QMainWindow):
             point = self.world_to_scene(float(location.get("x", 0.0)), float(location.get("y", 0.0)))
             label = self.scene.addText(f"⚡ {len(chargers)}")
             label.setDefaultTextColor(QColor("#ffd54f"))
-            label.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
+            label.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
             label.setPos(point.x() + 0.35, point.y() - 0.75)
             label.setZValue(40)
 
@@ -1425,8 +1419,8 @@ class AMRGraphEditor(QMainWindow):
 
         pts = [self.world_to_scene(p["x"], p["y"]) for p in self.bounding_box_points]
         pen = QPen(QColor("#ffdd57"), 0)
-        pen.setStyle(Qt.DashLine)
-        brush = QBrush(QColor(255, 221, 87, 35)) if len(pts) >= 3 else Qt.NoBrush
+        pen.setStyle(Qt.PenStyle.DashLine)
+        brush = QBrush(QColor(255, 221, 87, 35)) if len(pts) >= 3 else Qt.BrushStyle.NoBrush
 
         # if len(pts) == 1:
         #     p = pts[0]
@@ -1580,7 +1574,7 @@ class AMRGraphEditor(QMainWindow):
                 if has_door:
                     door_text = QGraphicsSimpleTextItem("D")
                     door_text.setBrush(QBrush(QColor("#ffffff")))
-                    door_text.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
+                    door_text.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
                     door_text.setPos(pos.x() - 0.12, pos.y() - 0.55)
                     door_text.setZValue(35)
                     self.scene.addItem(door_text)
@@ -1615,19 +1609,19 @@ class AMRGraphEditor(QMainWindow):
                 label_color = QColor("#ffb3ae")
             if not route_allowed:
                 item.setOpacity(0.3)
-            item.setFlag(QGraphicsItem.ItemIgnoresTransformations, False)
+            item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, False)
             item.setZValue(30 if route_selected or selected else 10)
             self._item_lookup[item] = ("point", name)
             self._point_item_lookup[name] = item
             if self.show_labels_check.isChecked():
                 text = QGraphicsSimpleTextItem(name)
                 text.setBrush(label_color)
-                text.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
+                text.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
                 text.setPos(pos.x() + 0.5, pos.y())
                 self.scene.addItem(text)
                 self._item_lookup[text] = ("point_label", name)
 
-    def draw_overlay_panels(self, painter, viewport_rect):
+    def draw_overlay_panels(self, painter, _viewport_rect):
         floor = self.floor_spin.value()
         mapped_path = self.get_floor_dxf_path(floor)
         dxf_name = Path(mapped_path).name if mapped_path else "None"
@@ -1712,13 +1706,13 @@ class AMRGraphEditor(QMainWindow):
             group_resolver=lambda item: f"Floor {self.build_floor_map(self.store.data).get(item, 'Other')}",
             task_generation_categories=self.task_generation_category_pairs(),
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             if dialog.result["name"] in self.store.names_in_use():
                 QMessageBox.critical(
                     self, "Duplicate name", "Department name already exists"
                 )
                 return
-            created_locations = self.create_department_generated_locations(
+            self.create_department_generated_locations(
                 dialog.result
             )
             self.store.upsert_department(dialog.result)
@@ -1742,14 +1736,14 @@ class AMRGraphEditor(QMainWindow):
             group_resolver=lambda item: f"Floor {self.build_floor_map(self.store.data).get(item, 'Other')}",
             task_generation_categories=self.task_generation_category_pairs(),
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             dept_name = str(dialog.result.get("name", "")).strip()
             if dept_name in self.store.names_in_use():
                 QMessageBox.critical(
                     self, "Duplicate name", "Department name already exists"
                 )
                 return
-            created_locations = self.create_department_generated_locations(
+            self.create_department_generated_locations(
                 dialog.result
             )
             self.store.upsert_department(dialog.result)
@@ -1786,7 +1780,7 @@ class AMRGraphEditor(QMainWindow):
             group_resolver=lambda item: f"Floor {self.build_floor_map(self.store.data).get(item, 'Other')}",
             task_generation_categories=self.task_generation_category_pairs(),
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             for other in self.store.data.get("departments", []):
                 if other is dept:
                     continue
@@ -1810,7 +1804,7 @@ class AMRGraphEditor(QMainWindow):
             old_name = str(dept.get("name", "")).strip()
             new_name = str(dialog.result.get("name", "")).strip()
 
-            created_locations = self.create_department_generated_locations(
+            self.create_department_generated_locations(
                 dialog.result
             )
             self.store.upsert_department(dialog.result)
@@ -1835,7 +1829,7 @@ class AMRGraphEditor(QMainWindow):
             picked = self._route_profile_pickable_point_at(raw_x, raw_y, floor)
 
             if picked:
-                if not (event.modifiers() & Qt.ControlModifier):
+                if not (event.modifiers() & Qt.KeyboardModifier.ControlModifier):
                     self.route_profile_selected_nodes.clear()
 
                 if picked in self.route_profile_selected_nodes:
@@ -1859,7 +1853,7 @@ class AMRGraphEditor(QMainWindow):
 
         if mode == "select_move":
             additive = bool(
-                event.modifiers() & (Qt.ControlModifier | Qt.ShiftModifier)
+                event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)
             )
             self.dragging_point_name = None
             self.drag_mode_active = False
@@ -1911,7 +1905,7 @@ class AMRGraphEditor(QMainWindow):
                         QMessageBox.question(
                             self, "Delete lift", f"Delete entire {lift_id}?"
                         )
-                        == QMessageBox.Yes
+                        == QMessageBox.StandardButton.Yes
                     ):
                         self.store.delete_lift(lift_id)
                         self.selected_point_name = None
@@ -1919,7 +1913,7 @@ class AMRGraphEditor(QMainWindow):
                 else:
                     if (
                         QMessageBox.question(self, "Delete point", f"Delete {picked}?")
-                        == QMessageBox.Yes
+                        == QMessageBox.StandardButton.Yes
                     ):
                         cleanup = self.store.delete_point(picked)
                         self.selected_point_name = None
@@ -2056,13 +2050,13 @@ class AMRGraphEditor(QMainWindow):
             dialog = LiftEditorDialog(
                 self, existing_lift, default_floor=floor, default_x=x, default_y=y
             )
-            if dialog.exec() == QDialog.Accepted and dialog.result:
+            if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
                 self._save_lift_result(dialog.result, old_id=existing_lift.get("id") if existing_lift else None)
                 self.set_status(f"Saved {dialog.result['id']}")
                 self.refresh_canvas()
             return
 
-    def on_double_click(self, event, sx, sy):
+    def on_double_click(self, _event, sx, sy):
         floor = self.floor_spin.value()
         x, y = self.scene_to_world(sx, sy)
         picked = self.find_nearest_point_name(x, y, floor)
@@ -2082,7 +2076,7 @@ class AMRGraphEditor(QMainWindow):
                 default_x=point["x"],
                 default_y=point["y"],
             )
-            if dialog.exec() == QDialog.Accepted and dialog.result:
+            if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
                 self._save_lift_result(dialog.result, old_id=existing_lift.get("id") if existing_lift else None)
                 self.set_status(f"Edited {dialog.result['id']}")
                 self.refresh_canvas()
@@ -2091,7 +2085,7 @@ class AMRGraphEditor(QMainWindow):
             self.edit_department_by_name(picked)
             return
         dialog = PointEditorDialog(self, f"Edit {picked}", picked, point)
-        if dialog.exec() == QDialog.Accepted and dialog.result:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
             self.store.set_point_position(
                 picked, dialog.result["x"], dialog.result["y"]
             )
@@ -2120,7 +2114,7 @@ class AMRGraphEditor(QMainWindow):
         if self.route_profile_selection_active:
             if self.route_profile_selection_rect_item is not None:
                 rect = self.route_profile_selection_rect_item.rect()
-                keep_existing = bool(event.modifiers() & Qt.ControlModifier)
+                keep_existing = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
 
                 if not keep_existing:
                     self.route_profile_selected_nodes.clear()
@@ -2233,7 +2227,7 @@ class AMRGraphEditor(QMainWindow):
             hit_index = self.find_nearest_bounding_box_point_index(x, y)
 
             if hit_index is not None:
-                removed = self.bounding_box_points.pop(hit_index)
+                self.bounding_box_points.pop(hit_index)
                 self.dragging_bounding_box_point_index = None
                 self.set_status(
                     f"Removed bounding box point {hit_index + 1} "
@@ -2356,6 +2350,7 @@ class AMRGraphEditor(QMainWindow):
             else:
                 draw_bounds_action = None
                 remove_bounds_action = None
+                inventory_spaces_action = None
 
             show_edges_action = menu.addAction("Show all edge connections")
             create_department_action = menu.addAction("Create department here")
@@ -2374,7 +2369,7 @@ class AMRGraphEditor(QMainWindow):
                 self.refresh_canvas()
             elif point.get("kind") == "location" and action == inventory_spaces_action:
                 dialog = InventorySpacesDialog(self, picked)
-                if dialog.exec() == QDialog.Accepted:
+                if dialog.exec() == QDialog.DialogCode.Accepted:
                     self.set_status(f"Updated inventory spaces for {picked}")
                     self.refresh_canvas()
             elif action == show_edges_action:
@@ -2394,7 +2389,7 @@ class AMRGraphEditor(QMainWindow):
 
     def on_drag(self, event, sx, sy):
         if self.route_profile_selection_active:
-            if not (event.modifiers() & Qt.AltModifier):
+            if not (event.modifiers() & Qt.KeyboardModifier.AltModifier):
                 return
 
             scene_pos = self.canvas.mapToScene(event.position().toPoint())
@@ -2472,7 +2467,7 @@ class AMRGraphEditor(QMainWindow):
         self.last_pan = current
         self.canvas.viewport().update()
 
-    def on_middle_release(self, event):
+    def on_middle_release(self, _event):
         self.last_pan = None
         self.refresh_canvas()
 
@@ -2593,7 +2588,7 @@ class AMRGraphEditor(QMainWindow):
             self,
             self.store.data.setdefault("simulation", {}),
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result is not None:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result is not None:
             self.store.data["simulation"] = dialog.result
             end_text = dialog.result.get("end_datetime", "") or "not set"
             self.set_status(f"Simulation end date set to {end_text}")
@@ -2605,7 +2600,7 @@ class AMRGraphEditor(QMainWindow):
             self.store.data,
             topology_selection=self.topology_selection_payload(),
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result is not None:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result is not None:
             self.store.set_scenario_testing(dialog.result)
             simulation = self.store.data.setdefault("simulation", {})
             simulation["scenario_mode"] = bool(dialog.result.get("enabled", False))
@@ -2632,7 +2627,7 @@ class AMRGraphEditor(QMainWindow):
                 include_incident_nodes=True
             ),
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result is not None:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result is not None:
             self.store.set_people_movements(dialog.result)
             profile_by_edge = {}
             valid_profile_ids = {
@@ -2706,7 +2701,7 @@ class AMRGraphEditor(QMainWindow):
             ],
             initially_selected_nodes=self.selected_corridor_node_names(),
         )
-        if dialog.exec() == QDialog.Accepted and dialog.result is not None:
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result is not None:
             self.store.data["corridors"]["edges"] = dialog.result.get("edges", [])
             self.store.data["corridors"]["nodes"] = dialog.result.get("nodes", [])
             self.store.ensure_corridor_defaults()
@@ -2750,7 +2745,7 @@ class AMRGraphEditor(QMainWindow):
             QMessageBox.question(
                 self, "Clear floor DXF", f"Remove DXF mapping for floor {floor}?"
             )
-            != QMessageBox.Yes
+            != QMessageBox.StandardButton.Yes
         ):
             return
         self.clear_floor_dxf_mapping(floor)
@@ -3032,7 +3027,7 @@ class AMRGraphEditor(QMainWindow):
             group_resolver=lambda item: f"Floor {self.build_floor_map(self.store.data).get(item, 'Other')}",
         )
 
-        if picker.exec() == QDialog.Accepted and picker.result is not None:
+        if picker.exec() == QDialog.DialogCode.Accepted and picker.result is not None:
             self.store.set_charge_locations(sorted(picker.result))
             self.set_status(f"Updated {len(picker.result)} charging location(s)")
 
@@ -3092,7 +3087,7 @@ class AMRGraphEditor(QMainWindow):
         self.set_status(f"Route profile selection applied: {len(selected)} node(s)")
         self.refresh_canvas()
 
-        if callback:
+        if callable(callback):
             callback(selected)
 
         if return_window:

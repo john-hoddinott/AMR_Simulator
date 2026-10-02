@@ -19,7 +19,16 @@ from amr_sim_energy import (
     total_lift_energy_kwh,
     total_route_energy_kwh,
 )
-from amr_sim_models import AMR, Event, Lift, Location, PayloadType, StaffDeliveryResource, Task
+from amr_sim_models import (
+    AMR,
+    Event,
+    Lift,
+    Location,
+    MobileDeliveryResource,
+    PayloadType,
+    StaffDeliveryResource,
+    Task,
+)
 from amr_sim_payload_instances import (
     EMPTY_PAYLOAD_NAME,
     PayloadInstanceStore,
@@ -3337,8 +3346,8 @@ class Simulation:
     def _smooth_vehicle_waypoints(
         self,
         waypoints: List[Tuple[float, float]],
-        start_heading_deg: float,
-        target_heading_deg: float,
+        _start_heading_deg: float,
+        _target_heading_deg: float,
         radius: float,
     ) -> List[Tuple[float, float]]:
         """Densify corners so the visualiser shows steering rather than teleport turns."""
@@ -4699,8 +4708,8 @@ class Simulation:
         day_keys = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
         day_key = day_keys[day_dt.weekday()]
         use_custom = bool(getattr(task, "staff_use_custom_working_hours", False))
-        start_text = ""
-        end_text = ""
+        start_minutes = None
+        end_minutes = None
         if use_custom:
             weekly = getattr(task, "staff_working_hours", {}) or {}
             day_cfg = weekly.get(day_key, {}) if isinstance(weekly, dict) else {}
@@ -6203,7 +6212,7 @@ class Simulation:
             factor = min(factor, max(self.minimum_people_speed_factor, 1.0 - count * self.people_slowdown_per_person))
         return count, factor, ",".join(sorted(x for x in groups if x))
 
-    def _corridor_lane_capacity(self, edge: dict, amr: AMR, payload: Optional[PayloadType], orientation: str = "lengthways") -> Tuple[int, float, float]:
+    def _corridor_lane_capacity(self, edge: dict, amr: MobileDeliveryResource, payload: Optional[PayloadType], orientation: str = "lengthways") -> Tuple[int, float, float]:
         payload_key = None
         if payload is not None:
             payload_key = (id(payload), str(orientation or "lengthways").strip().lower())
@@ -6893,7 +6902,7 @@ class Simulation:
         return current >= start or current < end
 
     def _department_hourly_waste_rate_m3(
-        self, dept: dict, sim_time_sec: float
+        self, dept: dict, _sim_time_sec: float
     ) -> float:
         waste_cfg = dict(dept.get("waste", {}) or {})
 
@@ -7087,7 +7096,7 @@ class Simulation:
         # Same physical corridor edge in either direction.
         return tuple(sorted((a_name, b_name)))
 
-    def _spacing_time_sec(self, amr: AMR) -> float:
+    def _spacing_time_sec(self, amr: MobileDeliveryResource) -> float:
         return self.amr_spacing_m / max(amr.speed_m_per_sec, 1e-9)
 
     def _edge_recent_demand(self, edge_key: Tuple[str, str], t: float) -> int:
@@ -7281,13 +7290,11 @@ class Simulation:
 
     def _reserve_corridor_segments(
         self,
-        amr: AMR,
+        amr: MobileDeliveryResource,
         segments: List[dict],
         start_time: float,
     ):
         t = start_time
-        spacing_time = self._spacing_time_sec(amr)
-
         for segment in segments:
             duration = float(segment.get("duration", 0.0))
             seg_type = segment.get("type", "")
@@ -7319,7 +7326,7 @@ class Simulation:
 
             t += duration
 
-    def _travel_same_floor(self, amr: AMR, start: Location, end: Location) -> float:
+    def _travel_same_floor(self, amr: MobileDeliveryResource, start: Location, end: Location) -> float:
         route = self._shortest_path_same_floor(start.floor, start.name, end.name)
         if route is None:
             return math.inf
@@ -7327,7 +7334,7 @@ class Simulation:
 
     def _same_floor_segments(
         self,
-        amr: AMR,
+        amr: MobileDeliveryResource,
         start: Location,
         end: Location,
         rules: Optional[dict] = None,
@@ -7352,8 +7359,6 @@ class Simulation:
             scenario_factor = 1.0
             scenario_notes = ""
             scenario_wait = 0.0
-            edge_wait = 0.0
-            node_wait = 0.0
             if current is None:
                 duration = base_duration
                 speed_factor = 1.0
@@ -7459,7 +7464,6 @@ class Simulation:
                     if effective_speed_factor >= minimum_active_factor:
                         duration = adjusted_duration
                         speed_factor = min(speed_factor, effective_speed_factor)
-                        node_wait = 0.0
                     else:
                         duration = base_duration / minimum_active_factor
                         stop_wait = max(0.0, safe_arrival - (current + duration))
@@ -7476,7 +7480,6 @@ class Simulation:
                             })
                             total_duration += stop_wait
                             current += stop_wait
-                        node_wait = stop_wait
                         speed_factor = minimum_active_factor
                 else:
                     duration = travel_duration
@@ -7639,7 +7642,7 @@ class Simulation:
     def _nearest_compatible_lift_plan(
         self,
         ready_time: float,
-        amr: AMR,
+        amr: MobileDeliveryResource,
         from_loc: Location,
         to_loc: Location,
         payload: PayloadType,
@@ -8931,7 +8934,6 @@ class Simulation:
                 t = dropoff_start
 
             inventory_space_name = ""
-            reserved_space = None
             if reserve:
                 self._reserve_location(
                     dropoff_loc.name,
@@ -10046,7 +10048,6 @@ class Simulation:
                 preference = self._active_delivery_selection_policy(either_task, self.current_time)
                 amr_feasible = choice is not None and choice[1] is either_task
                 staff_feasible = staff_choice is not None
-                choose_staff = False
                 if preference == "prefer_staff":
                     choose_staff = staff_feasible
                 elif preference == "prefer_amr":
@@ -10970,7 +10971,7 @@ class Simulation:
             completed_amr = self.amrs_by_id.get(event.payload.get("amr_id"))
             completed_end_location_name = str(event.payload.get("end_location") or task.dropoff or "")
             completed_amr_loc = self.locations.get(completed_end_location_name)
-            completed_amr_space = None
+            planned_space = ""
             if completed_amr is not None:
                 planned_space = str(
                     event.payload.get("amr_inventory_space", "") or ""
@@ -13652,10 +13653,9 @@ def main():
     config = load_json(args.config)
     sim = Simulation(config, verbose=args.verbose, verbose_csv_path=args.verbose_csv)
 
-    input_thread = None
     if args.interactive:
-        input_thread = RuntimeInputThread(sim)
-        input_thread.start()
+        _input_thread = RuntimeInputThread(sim)
+        _input_thread.start()
 
     try:
         sim.run()
